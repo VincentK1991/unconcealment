@@ -1,7 +1,10 @@
 package com.unconcealment.backend.controller;
 
 import com.unconcealment.backend.model.DatasetManifest;
+import org.apache.jena.query.QueryExecution;
 import org.apache.jena.rdfconnection.RDFConnection;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -12,14 +15,14 @@ import java.util.*;
 
 /**
  * Live infrastructure health endpoints.
- * These expose real-time signals for ops dashboards — they are NOT stored in the graph.
- * Durable operational facts (rule reload events, ontology version lineage) go to urn:system:health:{datasetId}.
- *
- * TODO (Phase 1): add triple counts per named graph, InfModel loaded status, rules count.
+ * These expose real-time signals for ops dashboards.
+ * Durable operational facts (load events, ontology version lineage) are stored in urn:system:health:{datasetId}.
  */
 @RestController
 @RequestMapping("/health")
 public class HealthController {
+
+    private static final Logger log = LoggerFactory.getLogger(HealthController.class);
 
     private final DatasetManifest manifest;
     private final Map<String, RDFConnection> connections;
@@ -31,7 +34,7 @@ public class HealthController {
 
     /**
      * GET /health/live
-     * JVM heap usage, uptime. Always returns 200 if JVM is alive.
+     * JVM heap usage, uptime. Always returns 200 if the JVM is alive.
      */
     @GetMapping("/live")
     public Map<String, Object> live() {
@@ -39,17 +42,17 @@ public class HealthController {
         long heapUsed = mem.getHeapMemoryUsage().getUsed();
         long heapMax  = mem.getHeapMemoryUsage().getMax();
         return Map.of(
-            "status", "UP",
+            "status",    "UP",
             "heapUsedMb", heapUsed / (1024 * 1024),
             "heapMaxMb",  heapMax  / (1024 * 1024),
-            "uptimeMs", ManagementFactory.getRuntimeMXBean().getUptime()
+            "uptimeMs",   ManagementFactory.getRuntimeMXBean().getUptime()
         );
     }
 
     /**
      * GET /health/ready
-     * Checks: Fuseki reachable for each dataset, InfModel loaded, rules count.
-     * Returns 200 only when all datasets are ready.
+     * Checks Fuseki reachability for each dataset via a lightweight ASK query.
+     * Returns 200 only when all datasets are reachable.
      */
     @GetMapping("/ready")
     public Map<String, Object> ready() {
@@ -57,43 +60,70 @@ public class HealthController {
         boolean allReady = true;
 
         for (DatasetManifest.DatasetConfig ds : manifest.getDatasets()) {
-            boolean fusekiReachable = false;
-            try {
-                RDFConnection conn = connections.get(ds.getId());
-                if (conn != null) {
-                    // TODO: execute a lightweight ASK query to verify Fuseki is reachable
-                    fusekiReachable = true;
-                }
-            } catch (Exception e) {
-                allReady = false;
-            }
+            boolean fusekiReachable = checkFusekiReachable(ds.getId());
+            if (!fusekiReachable) allReady = false;
+
             datasetStatus.add(Map.of(
-                "id", ds.getId(),
-                "fusekiReachable", fusekiReachable,
-                "infModelLoaded", false, // TODO: track in JenaConfig
-                "rulesCount", 0          // TODO: count from named graphs
+                "id",              ds.getId(),
+                "fusekiReachable", fusekiReachable
             ));
         }
 
         return Map.of(
-            "status", allReady ? "READY" : "NOT_READY",
+            "status",   allReady ? "READY" : "NOT_READY",
             "datasets", datasetStatus
         );
     }
 
     /**
      * GET /health/metrics
-     * Prometheus-compatible metrics. Spring Actuator + Micrometer handle most of this.
-     * Custom metrics (triple counts, rule counts) will be added in Phase 1.
+     * Basic triple count per dataset. Phase 4 adds per-named-graph breakdown
+     * and Micrometer gauge registration.
      */
     @GetMapping("/metrics")
     public Map<String, Object> metrics() {
-        // TODO: expose triple counts per named graph via Micrometer gauges
+        List<Map<String, Object>> datasetMetrics = new ArrayList<>();
+
+        for (DatasetManifest.DatasetConfig ds : manifest.getDatasets()) {
+            long tripleCount = queryTripleCount(ds.getId());
+            datasetMetrics.add(Map.of(
+                "id",          ds.getId(),
+                "tripleCount", tripleCount
+            ));
+        }
+
         return Map.of(
-            "note", "Use /actuator/prometheus for Prometheus-compatible metrics",
-            "datasets", manifest.getDatasets().stream()
-                .map(ds -> Map.of("id", ds.getId(), "tripleCount", -1))
-                .toList()
+            "datasets", datasetMetrics,
+            "note",     "Phase 4 adds per-named-graph counts and Prometheus gauges"
         );
+    }
+
+    // -------------------------------------------------------------------------
+
+    private boolean checkFusekiReachable(String datasetId) {
+        RDFConnection conn = connections.get(datasetId);
+        if (conn == null) return false;
+        try (QueryExecution qExec = conn.query("ASK { ?s ?p ?o }")) {
+            qExec.execAsk();
+            return true;
+        } catch (Exception e) {
+            log.warn("[{}] Fuseki not reachable: {}", datasetId, e.getMessage());
+            return false;
+        }
+    }
+
+    private long queryTripleCount(String datasetId) {
+        RDFConnection conn = connections.get(datasetId);
+        if (conn == null) return -1;
+        try (QueryExecution qExec = conn.query("SELECT (COUNT(*) AS ?count) WHERE { ?s ?p ?o }")) {
+            var rs = qExec.execSelect();
+            if (rs.hasNext()) {
+                return rs.next().getLiteral("count").getLong();
+            }
+            return 0;
+        } catch (Exception e) {
+            log.warn("[{}] Triple count query failed: {}", datasetId, e.getMessage());
+            return -1;
+        }
     }
 }

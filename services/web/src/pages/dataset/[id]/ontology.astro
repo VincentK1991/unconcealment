@@ -1,0 +1,157 @@
+---
+export const prerender = false;
+
+import DatasetNav from "../../../components/DatasetNav.astro";
+
+const { id: datasetId } = Astro.params;
+if (!datasetId) return Astro.redirect("/");
+
+const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
+
+interface ClassBinding {
+  class:    { value: string };
+  label:    { value: string };
+  comment?: { value: string };
+  parent?:  { value: string };
+}
+
+interface PropBinding {
+  prop:     { value: string };
+  label:    { value: string };
+  propType: { value: string };
+  domain?:  { value: string };
+  range?:   { value: string };
+  comment?: { value: string };
+}
+
+const classSparql = `
+  PREFIX owl:  <http://www.w3.org/2002/07/owl#>
+  PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+  SELECT DISTINCT ?class ?label ?comment ?parent WHERE {
+    ?class a owl:Class ;
+           rdfs:label ?label .
+    OPTIONAL { ?class rdfs:comment ?comment }
+    OPTIONAL { ?class rdfs:subClassOf ?parent . FILTER(!isBlank(?parent)) }
+  }
+  ORDER BY ?label
+`;
+
+const propSparql = `
+  PREFIX owl:  <http://www.w3.org/2002/07/owl#>
+  PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+  SELECT DISTINCT ?prop ?label ?propType ?domain ?range ?comment WHERE {
+    { ?prop a owl:ObjectProperty .   BIND("ObjectProperty"   AS ?propType) }
+    UNION
+    { ?prop a owl:DatatypeProperty . BIND("DatatypeProperty" AS ?propType) }
+    ?prop rdfs:label ?label .
+    OPTIONAL { ?prop rdfs:domain ?domain . FILTER(!isBlank(?domain)) }
+    OPTIONAL { ?prop rdfs:range  ?range  . FILTER(!isBlank(?range))  }
+    OPTIONAL { ?prop rdfs:comment ?comment }
+  }
+  ORDER BY ?label
+`;
+
+async function tboxQuery<T>(sparql: string): Promise<T[]> {
+  try {
+    const res = await fetch(`${BACKEND_URL}/query/tbox?dataset=${encodeURIComponent(datasetId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/sparql-query" },
+      body: sparql,
+    });
+    if (!res.ok) return [];
+    const data = await res.json() as { results?: { bindings?: T[] } };
+    return data.results?.bindings ?? [];
+  } catch { return []; }
+}
+
+const [classes, props] = await Promise.all([
+  tboxQuery<ClassBinding>(classSparql),
+  tboxQuery<PropBinding>(propSparql),
+]);
+
+const short = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ontology — {datasetId} — unconcealment</title>
+    <style>
+      body  { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+      h1    { font-size: 1.5rem; margin: 0 0 0.25rem; }
+      h2    { font-size: 1.1rem; margin: 2rem 0 0.75rem; border-bottom: 2px solid #e0e0e0; padding-bottom: 0.4rem; }
+      .sub  { color: #555; font-size: 0.85rem; font-family: monospace; margin: 0 0 1.5rem; }
+      .badge{ display: inline-block; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; margin-left: 0.4rem; }
+      .empty{ color: #888; font-size: 0.9rem; }
+      table { width: 100%; border-collapse: collapse; margin-top: 0.25rem; font-size: 0.875rem; }
+      th    { text-align: left; border-bottom: 2px solid #ccc; padding: 0.4rem 0.6rem; font-size: 0.78rem; color: #444; text-transform: uppercase; letter-spacing: 0.04em; }
+      td    { padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; vertical-align: top; }
+      td.iri{ font-family: monospace; font-size: 0.72rem; color: #888; word-break: break-all; }
+      td.comment { color: #555; font-size: 0.82rem; }
+      .tag  { display: inline-block; background: #eef4ff; color: #1a6bb5; border-radius: 4px; padding: 0.05rem 0.45rem; font-size: 0.75rem; margin-right: 0.2rem; }
+      .tag.dp{ background: #fff4e6; color: #a05a00; }
+      .parent{ font-size: 0.75rem; color: #888; }
+    </style>
+  </head>
+  <body>
+    <DatasetNav datasetId={datasetId} current="ontology" />
+    <h1>Ontology</h1>
+    <p class="sub">urn:{datasetId}:tbox:ontology</p>
+
+    <!-- Classes -->
+    <h2>Classes <span class="badge">{classes.length}</span></h2>
+    {classes.length === 0
+      ? <p class="empty">No classes found.</p>
+      : (
+        <table>
+          <thead>
+            <tr><th>Class</th><th>IRI</th><th>Parent</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            {classes.map(row => (
+              <tr>
+                <td><strong>{row.label.value}</strong></td>
+                <td class="iri">{row.class.value}</td>
+                <td class="parent">{row.parent ? short(row.parent.value) : "—"}</td>
+                <td class="comment">{row.comment?.value ?? ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )
+    }
+
+    <!-- Properties -->
+    <h2>Properties <span class="badge">{props.length}</span></h2>
+    {props.length === 0
+      ? <p class="empty">No properties found.</p>
+      : (
+        <table>
+          <thead>
+            <tr><th>Property</th><th>Type</th><th>Domain</th><th>Range</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            {props.map(row => (
+              <tr>
+                <td>
+                  <strong>{row.label.value}</strong>
+                  <br /><span style="font-family:monospace;font-size:0.7rem;color:#aaa">{short(row.prop.value)}</span>
+                </td>
+                <td>
+                  <span class={`tag ${row.propType.value === "DatatypeProperty" ? "dp" : ""}`}>
+                    {row.propType.value === "ObjectProperty" ? "Object" : "Datatype"}
+                  </span>
+                </td>
+                <td class="iri">{row.domain ? short(row.domain.value) : "—"}</td>
+                <td class="iri">{row.range  ? short(row.range.value)  : "—"}</td>
+                <td class="comment">{row.comment?.value ?? ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )
+    }
+  </body>
+</html>

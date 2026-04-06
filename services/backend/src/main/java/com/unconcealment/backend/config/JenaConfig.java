@@ -14,14 +14,15 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Configures one RDFConnection per dataset defined in manifest.yaml.
- * At startup, for each dataset:
- *   1. Opens a remote connection to the Fuseki dataset endpoint
- *   2. Loads the ontology TTL into the tbox named graph (TODO: Phase 1 impl)
- *   3. Loads forward + backward rules into their respective named graphs (TODO: Phase 1 impl)
- *   4. Builds a GenericRuleReasoner in HYBRID mode (TODO: Phase 1 impl)
+ * Creates one RDFConnection per dataset defined in manifest.yaml.
  *
- * All dataset IDs and named graph URIs come from the manifest — nothing is hardcoded here.
+ * Each connection is built with explicit query, update, and GSP endpoints:
+ *   - queryEndpoint  "sparql" → POST /query/raw, /query/reasoned, /query/tbox
+ *   - updateEndpoint "update" → POST /query/update (SPARQL UPDATE)
+ *   - gspEndpoint    "data"   → conn.load() uses HTTP PUT to load TTL models
+ *
+ * Using conn.load(graphUri, model) avoids the Fuseki LOAD <file://...> command,
+ * which requires filesystem co-location between the backend and Fuseki containers.
  */
 @Configuration
 public class JenaConfig {
@@ -32,16 +33,21 @@ public class JenaConfig {
     private String fusekiUrl;
 
     /**
-     * Returns a map of datasetId → RDFConnection to the Fuseki SPARQL endpoint.
-     * Key is the dataset id from manifest.yaml (e.g. "economic-census").
+     * Returns a map of datasetId → RDFConnection.
+     * Each connection targets the dataset's Fuseki endpoint with full query/update/GSP support.
      */
     @Bean
     public Map<String, RDFConnection> datasetConnections(DatasetManifest manifest) {
         Map<String, RDFConnection> connections = new LinkedHashMap<>();
         for (DatasetConfig dataset : manifest.getDatasets()) {
-            String endpoint = fusekiUrl + "/" + dataset.getFusekiDataset() + "/sparql";
-            log.info("Connecting to Fuseki dataset '{}' at {}", dataset.getId(), endpoint);
-            RDFConnection conn = RDFConnectionRemote.service(endpoint).build();
+            String base = fusekiUrl + "/" + dataset.getFusekiDataset();
+            log.info("Configuring RDFConnection for dataset '{}' at {}", dataset.getId(), base);
+            RDFConnection conn = RDFConnectionRemote.newBuilder()
+                    .destination(base)
+                    .queryEndpoint("sparql")
+                    .updateEndpoint("update")
+                    .gspEndpoint("data")
+                    .build();
             connections.put(dataset.getId(), conn);
         }
         return connections;

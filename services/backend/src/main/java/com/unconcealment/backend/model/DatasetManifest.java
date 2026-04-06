@@ -15,11 +15,48 @@ public class DatasetManifest {
 
     private List<DatasetConfig> datasets;
 
+    /**
+     * IRI segment labels, read from manifest.iriMinting.
+     * Keys are segment identifiers (e.g. "tboxSegment", "aboxSegment");
+     * values are the URL path segments used when minting IRIs.
+     */
+    private java.util.Map<String, String> iriMinting;
+
     public String getBaseUri() { return baseUri; }
     public void setBaseUri(String baseUri) { this.baseUri = baseUri; }
 
     public List<DatasetConfig> getDatasets() { return datasets; }
     public void setDatasets(List<DatasetConfig> datasets) { this.datasets = datasets; }
+
+    public java.util.Map<String, String> getIriMinting() { return iriMinting; }
+    public void setIriMinting(java.util.Map<String, String> iriMinting) { this.iriMinting = iriMinting; }
+
+    /**
+     * Resolves the effective base URI for a dataset.
+     * Dataset-level baseUri takes precedence over the manifest-level default.
+     */
+    public String resolveBaseUri(DatasetConfig dataset) {
+        return dataset.getBaseUri() != null ? dataset.getBaseUri() : this.baseUri;
+    }
+
+    /**
+     * Mints a stable IRI using a segment key looked up from manifest.iriMinting.
+     * Pattern: {baseUri}/{segment}/{uuid}
+     */
+    public String mintIri(DatasetConfig dataset, String segmentKey, String uuid) {
+        String segment = iriMinting.get(segmentKey);
+        if (segment == null) {
+            throw new IllegalArgumentException(
+                "Unknown IRI segment key '" + segmentKey + "'. " +
+                "Available keys in manifest.iriMinting: " + iriMinting.keySet()
+            );
+        }
+        return resolveBaseUri(dataset) + "/" + segment + "/" + uuid;
+    }
+
+    // -------------------------------------------------------------------------
+    // Inner classes
+    // -------------------------------------------------------------------------
 
     public static class DatasetConfig {
         private String id;
@@ -56,59 +93,36 @@ public class DatasetManifest {
         public BigQueryConfig getBigquery() { return bigquery; }
         public void setBigquery(BigQueryConfig bigquery) { this.bigquery = bigquery; }
 
-        /**
-         * Returns named graph URIs derived from the dataset id.
-         * Convention: urn:{dataset-id}:{graph-role}
-         */
+        /** Returns named graph URIs derived from the dataset id. */
         public NamedGraphs namedGraphs() {
             return new NamedGraphs(id);
         }
     }
 
-    /**
-     * Resolves the effective base URI for a dataset.
-     * Dataset-level baseUri takes precedence over the manifest-level default.
-     */
-    public String resolveBaseUri(DatasetConfig dataset) {
-        return dataset.getBaseUri() != null ? dataset.getBaseUri() : this.baseUri;
+    public static class RulesPaths {
+        private String forward;
+        private String backward;
+
+        public String getForward() { return forward; }
+        public void setForward(String forward) { this.forward = forward; }
+        public String getBackward() { return backward; }
+        public void setBackward(String backward) { this.backward = backward; }
     }
 
-    /**
-     * IRI segment labels, read from manifest.iriMinting.
-     * Keys are segment identifiers (e.g. "tboxSegment", "aboxSegment");
-     * values are the URL path segments used when minting IRIs.
-     * Adding a new segment only requires updating manifest.yaml — no code change.
-     */
-    private java.util.Map<String, String> iriMinting;
+    public static class BigQueryConfig {
+        private boolean enabled;
+        private String bindingsPath;
 
-    public java.util.Map<String, String> getIriMinting() { return iriMinting; }
-    public void setIriMinting(java.util.Map<String, String> iriMinting) { this.iriMinting = iriMinting; }
-
-    /**
-     * Mints a stable IRI using a segment key looked up from manifest.iriMinting.
-     * Pattern: {baseUri}/{segment}/{uuid}
-     *
-     * segmentKey is a key into iriMinting (e.g. "tboxSegment", "aboxSegment",
-     * or any future key added to manifest.yaml). No segment values are hardcoded.
-     *
-     * Example:
-     *   manifest.mintIri(dataset, "aboxSegment", uuid)
-     *   → "https://kg.unconcealment.io/entity/a7f3c291-..."
-     */
-    public String mintIri(DatasetConfig dataset, String segmentKey, String uuid) {
-        String segment = iriMinting.get(segmentKey);
-        if (segment == null) {
-            throw new IllegalArgumentException(
-                "Unknown IRI segment key '" + segmentKey + "'. " +
-                "Available keys in manifest.iriMinting: " + iriMinting.keySet()
-            );
-        }
-        return resolveBaseUri(dataset) + "/" + segment + "/" + uuid;
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getBindingsPath() { return bindingsPath; }
+        public void setBindingsPath(String bindingsPath) { this.bindingsPath = bindingsPath; }
     }
 
     /**
      * Computed named graph URIs for a dataset.
      * Never read from the manifest — always derived from the dataset id.
+     * Convention: urn:{dataset-id}:{graph-role}
      */
     public record NamedGraphs(String datasetId) {
         public String tbox()          { return "urn:" + datasetId + ":tbox:ontology"; }

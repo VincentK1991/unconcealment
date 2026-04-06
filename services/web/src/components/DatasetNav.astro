@@ -1,0 +1,61 @@
+---
+interface Props {
+  datasetId: string;
+  current: "overview" | "entities" | "ontology" | "rules";
+}
+const { datasetId, current } = Astro.props;
+
+const tabs = [
+  { id: "overview",  label: "Overview",       href: `/dataset/${datasetId}` },
+  { id: "entities",  label: "Entities",        href: `/dataset/${datasetId}/entities` },
+  { id: "ontology",  label: "Ontology",        href: `/dataset/${datasetId}/ontology` },
+  { id: "rules",     label: "Rules",           href: `/dataset/${datasetId}/rules` },
+];
+---
+
+<nav class="ds-nav">
+  <a class="ds-nav__back" href="/">← All datasets</a>
+  <span class="ds-nav__sep">/</span>
+  <span class="ds-nav__dataset">{datasetId}</span>
+  <div class="ds-nav__tabs">
+    {tabs.map(tab => (
+      <a
+        href={tab.href}
+        class={`ds-nav__tab ${current === tab.id ? "ds-nav__tab--active" : ""}`}
+      >
+        {tab.label}
+      </a>
+    ))}
+  </div>
+</nav>
+
+<style>
+  .ds-nav {
+    margin-bottom: 1.75rem;
+  }
+  .ds-nav__back { color: #555; text-decoration: none; font-size: 0.9rem; }
+  .ds-nav__back:hover { color: #000; }
+  .ds-nav__sep  { color: #ccc; margin: 0 0.4rem; }
+  .ds-nav__dataset { font-size: 0.9rem; color: #333; font-weight: 500; }
+  .ds-nav__tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid #e0e0e0;
+    margin-top: 1.25rem;
+  }
+  .ds-nav__tab {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    text-decoration: none;
+    color: #555;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    transition: color 0.15s;
+  }
+  .ds-nav__tab:hover { color: #1a6bb5; }
+  .ds-nav__tab--active {
+    color: #1a6bb5;
+    border-bottom-color: #1a6bb5;
+    font-weight: 500;
+  }
+</style>

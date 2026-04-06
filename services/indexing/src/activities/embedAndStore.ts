@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, Prisma } from "@prisma/client";
 import OpenAI from "openai";
 
 const prisma = new PrismaClient();
@@ -23,8 +23,12 @@ export interface EmbedAndStoreOutput {
  * and store chunks + vectors in Postgres via Prisma.
  *
  * Uses text-embedding-3-small (1536 dimensions).
- * The Postgres row IDs are returned so extractEntities can reference them
+ * The Postgres row IDs are returned so assertToGraph can reference them
  * in RDF-star provenance annotations.
+ *
+ * pgvector note: Prisma's parameterized binding casts interpolated values as `text`,
+ * which Postgres rejects for the vector(1536) column type. We use Prisma.raw() to
+ * inline the ::vector cast, bypassing the parameter binding for that column only.
  */
 export async function embedAndStore(
   input: EmbedAndStoreInput
@@ -35,27 +39,29 @@ export async function embedAndStore(
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
 
-    // Generate embedding
     const embeddingResponse = await openai.embeddings.create({
       model: "text-embedding-3-small",
       input: chunk,
     });
     const vector = embeddingResponse.data[0].embedding;
 
-    // Store in Postgres — pgvector stores the embedding as a raw SQL expression
-    // Prisma does not natively support vector(1536) so we use $executeRaw for the insert
-    const result = await prisma.$queryRaw<Array<{ id: string }>>`
-      INSERT INTO document_chunks (document_iri, dataset_id, chunk_text, chunk_index, embedding, source_url)
-      VALUES (
-        ${input.documentIri},
-        ${input.datasetId},
-        ${chunk},
-        ${i},
-        ${`[${vector.join(",")}]`}::vector,
-        ${input.sourceUrl}
-      )
-      RETURNING id
-    `;
+    // Prisma.raw() inlines the vector literal directly into the SQL,
+    // bypassing parameterized binding for the ::vector cast.
+    const result = await prisma.$queryRaw<Array<{ id: string }>>(
+      Prisma.sql`
+        INSERT INTO document_chunks
+          (document_iri, dataset_id, chunk_text, chunk_index, embedding, source_url)
+        VALUES (
+          ${input.documentIri},
+          ${input.datasetId},
+          ${chunk},
+          ${i},
+          ${Prisma.raw(`'[${vector.join(",")}]'::vector`)},
+          ${input.sourceUrl}
+        )
+        RETURNING id
+      `
+    );
 
     chunkIds.push(result[0].id);
   }

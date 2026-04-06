@@ -1,0 +1,100 @@
+---
+export const prerender = false;
+
+import DatasetNav from "../../../components/DatasetNav.astro";
+
+const { id: datasetId } = Astro.params;
+if (!datasetId) return Astro.redirect("/");
+
+const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
+
+// Named graphs for this dataset
+const graphs = [
+  { role: "Ontology",        uri: `urn:${datasetId}:tbox:ontology`,        href: `/dataset/${datasetId}/ontology`,       description: "OWL classes and properties" },
+  { role: "Forward Rules",   uri: `urn:${datasetId}:tbox:rules:forward`,   href: `/dataset/${datasetId}/rules#forward`,   description: "Materialized RETE rules" },
+  { role: "Backward Rules",  uri: `urn:${datasetId}:tbox:rules:backward`,  href: `/dataset/${datasetId}/rules#backward`,  description: "Query-time LP rules" },
+  { role: "Asserted Triples",uri: `urn:${datasetId}:abox:asserted`,        href: `/dataset/${datasetId}/entities`,        description: "Extracted entities and relationships" },
+  { role: "Inferred Triples",uri: `urn:${datasetId}:abox:inferred`,        href: null,                                    description: "Materialized forward-chaining output (Phase 4)" },
+  { role: "Normalization",   uri: `urn:${datasetId}:normalization`,        href: null,                                    description: "owl:sameAs links (Phase 2)" },
+  { role: "System Health",   uri: `urn:${datasetId}:system:health`,        href: null,                                    description: "Load events and ontology version lineage" },
+];
+
+// Get triple count per named graph
+const countSparql = `
+  SELECT ?graph (COUNT(*) AS ?count) WHERE {
+    GRAPH ?graph { ?s ?p ?o }
+  }
+  GROUP BY ?graph
+`;
+
+interface CountBinding {
+  graph: { value: string };
+  count: { value: string };
+}
+
+let counts: Record<string, number> = {};
+try {
+  const res = await fetch(`${BACKEND_URL}/query/raw?dataset=${encodeURIComponent(datasetId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/sparql-query" },
+    body: countSparql,
+  });
+  if (res.ok) {
+    const data = await res.json() as { results?: { bindings?: CountBinding[] } };
+    for (const row of data.results?.bindings ?? []) {
+      counts[row.graph.value] = parseInt(row.count.value, 10);
+    }
+  }
+} catch { /* backend unavailable */ }
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{datasetId} — unconcealment</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+      .card {
+        border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem 1.25rem;
+        text-decoration: none; color: inherit; display: block;
+      }
+      .card:hover { border-color: #1a6bb5; background: #f5f9ff; }
+      .card.disabled { opacity: 0.5; cursor: default; pointer-events: none; }
+      .card__role { font-weight: 600; font-size: 0.95rem; margin: 0 0 0.2rem; }
+      .card__uri  { font-size: 0.72rem; color: #888; font-family: monospace; word-break: break-all; margin: 0 0 0.5rem; }
+      .card__desc { font-size: 0.85rem; color: #555; margin: 0; }
+      .card__count { float: right; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; }
+    </style>
+  </head>
+  <body>
+    <DatasetNav datasetId={datasetId} current="overview" />
+    <h1>{datasetId}</h1>
+    <p style="color:#555;margin-top:0;font-size:0.9rem">Named graphs in this dataset</p>
+
+    <div class="grid">
+      {graphs.map(g => {
+        const count = counts[g.uri];
+        return g.href ? (
+          <a class="card" href={g.href}>
+            <p class="card__role">
+              {g.role}
+              {count !== undefined && <span class="card__count">{count.toLocaleString()}</span>}
+            </p>
+            <p class="card__uri">{g.uri}</p>
+            <p class="card__desc">{g.description}</p>
+          </a>
+        ) : (
+          <div class="card disabled">
+            <p class="card__role">{g.role}</p>
+            <p class="card__uri">{g.uri}</p>
+            <p class="card__desc">{g.description}</p>
+          </div>
+        );
+      })}
+    </div>
+  </body>
+</html>

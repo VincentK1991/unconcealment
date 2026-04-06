@@ -1,0 +1,117 @@
+---
+export const prerender = false;
+
+import DatasetNav from "../../../components/DatasetNav.astro";
+
+const { id: datasetId } = Astro.params;
+if (!datasetId) return Astro.redirect("/");
+
+const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
+
+interface EntityBinding {
+  entity: { value: string };
+  label?: { value: string };
+  type?:  { value: string };
+}
+
+const aboxAsserted = `urn:${datasetId}:abox:asserted`;
+
+const sparql = `
+  PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+  PREFIX owl:  <http://www.w3.org/2002/07/owl#>
+  SELECT DISTINCT ?entity ?label ?type WHERE {
+    GRAPH <${aboxAsserted}> {
+      ?entity a ?type .
+      OPTIONAL { ?entity rdfs:label ?label }
+      FILTER(?type != owl:NamedIndividual)
+    }
+  }
+  ORDER BY ?label
+  LIMIT 100
+`;
+
+let entities: EntityBinding[] = [];
+let error: string | null = null;
+
+try {
+  const res = await fetch(`${BACKEND_URL}/query/raw?dataset=${encodeURIComponent(datasetId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/sparql-query" },
+    body: sparql,
+  });
+  if (res.ok) {
+    const data = await res.json() as { results?: { bindings?: EntityBinding[] } };
+    entities = data.results?.bindings ?? [];
+  } else {
+    error = `Backend returned ${res.status}`;
+  }
+} catch {
+  error = "Backend unavailable";
+}
+
+const shortLabel = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
+const entityUuid  = (iri: string) => iri.split("/").pop() ?? iri;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Entities — {datasetId} — unconcealment</title>
+    <style>
+      body  { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+      h1    { font-size: 1.5rem; margin: 0 0 0.25rem; }
+      .sub  { color: #555; margin: 0 0 1.5rem; font-size: 0.85rem; font-family: monospace; }
+      .error{ color: #c00; background: #fff0f0; border: 1px solid #fcc; padding: 0.75rem 1rem; border-radius: 6px; margin: 1rem 0; }
+      .empty{ color: #888; margin-top: 2rem; font-size: 0.9rem; }
+      table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+      th    { text-align: left; border-bottom: 2px solid #ccc; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: #444; text-transform: uppercase; letter-spacing: 0.04em; }
+      td    { padding: 0.45rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.875rem; vertical-align: top; }
+      td.type{ color: #667; font-size: 0.8rem; }
+      td.iri { font-size: 0.72rem; color: #999; word-break: break-all; font-family: monospace; }
+      a.el  { color: #1a6bb5; text-decoration: none; }
+      a.el:hover { text-decoration: underline; }
+      .badge{ display: inline-block; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; margin-left: 0.4rem; }
+    </style>
+  </head>
+  <body>
+    <DatasetNav datasetId={datasetId} current="entities" />
+    <h1>
+      Entities
+      {entities.length > 0 && <span class="badge">{entities.length}</span>}
+    </h1>
+    <p class="sub">{aboxAsserted}</p>
+
+    {error && <div class="error"><strong>Query failed:</strong> {error}</div>}
+
+    {!error && entities.length === 0 && (
+      <p class="empty">
+        No entities found. Run <code>just trigger {datasetId}</code> to index a test document.
+      </p>
+    )}
+
+    {entities.length > 0 && (
+      <table>
+        <thead>
+          <tr><th>Label</th><th>Type</th><th>IRI</th></tr>
+        </thead>
+        <tbody>
+          {entities.map(row => {
+            const uuid  = entityUuid(row.entity.value);
+            const label = row.label?.value ?? shortLabel(row.entity.value);
+            const type  = row.type ? shortLabel(row.type.value) : "—";
+            return (
+              <tr>
+                <td><a class="el" href={`/entity/${uuid}?dataset=${datasetId}`}>{label}</a></td>
+                <td class="type">{type}</td>
+                <td class="iri">{row.entity.value}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    )}
+  </body>
+</html>
