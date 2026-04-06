@@ -1,0 +1,5 @@
+# Temporal dynamic configuration
+# Adjust these for production; defaults are fine for local development
+limit.maxIDLength:
+  - value: 255
+    constraints: {}

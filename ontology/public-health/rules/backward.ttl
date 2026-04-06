@@ -1,0 +1,9 @@
+@prefix ex: <https://kg.unconcealment.io/ontology/> .
+
+# ============================================================
+# Backward Chaining Rules — public-health dataset
+# Status: Phase 1 stub — domain rules to be added as ontology matures
+# ============================================================
+
+# Placeholder: disease prevalence derivation from indicator data
+# ex:rule_disease_prevalence — to be defined in Phase 1 implementation

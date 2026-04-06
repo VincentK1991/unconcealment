@@ -1,0 +1,22 @@
+@prefix ex: <https://kg.unconcealment.io/ontology/> .
+
+# ============================================================
+# Forward Chaining Rules — public-health dataset
+# Status: Phase 1 stub
+# ============================================================
+
+ex:rule_sameAs_symmetry
+    a ex:ForwardRule ;
+    ex:ruleName    "sameAs Symmetry" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   10 ;
+    ex:ruleBody    """[sameAsSymm: (?a owl:sameAs ?b) -> (?b owl:sameAs ?a)]""" .
+
+ex:rule_sameAs_transitivity
+    a ex:ForwardRule ;
+    ex:ruleName    "sameAs Transitivity" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   20 ;
+    ex:ruleBody    """[sameAsTrans: (?a owl:sameAs ?b), (?b owl:sameAs ?c) -> (?a owl:sameAs ?c)]""" .

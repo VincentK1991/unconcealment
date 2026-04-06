@@ -1,0 +1,228 @@
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex:   <https://kg.unconcealment.io/ontology/> .
+
+# ============================================================
+# Ontology: Economic & Census Data
+# Dataset:  economic-census
+# Status:   Phase 1 stub — classes and properties are additive-first
+# ============================================================
+
+<https://kg.unconcealment.io/ontology/economic-census>
+    a owl:Ontology ;
+    rdfs:label "Economic & Census Data Ontology" ;
+    owl:versionInfo "0.1.0" .
+
+# ------------------------------------------------------------
+# Core Infrastructure Classes (shared pattern across datasets)
+# ------------------------------------------------------------
+
+ex:Entity
+    a owl:Class ;
+    rdfs:label "Entity" ;
+    rdfs:comment "Top-level class for all real-world individuals in this dataset." .
+
+ex:Document
+    a owl:Class ;
+    rdfs:label "Document" ;
+    rdfs:comment "A source document from which triples are extracted. Referenced in provenance." .
+
+ex:Rule
+    a owl:Class ;
+    rdfs:label "Rule" .
+
+ex:ForwardRule
+    a owl:Class ;
+    rdfs:subClassOf ex:Rule ;
+    rdfs:label "Forward Rule" .
+
+ex:BackwardRule
+    a owl:Class ;
+    rdfs:subClassOf ex:Rule ;
+    rdfs:label "Backward Rule" .
+
+# Rule metadata properties
+ex:ruleBody     a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:string .
+ex:ruleName     a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:string .
+ex:ruleVersion  a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:string .
+ex:ruleStatus   a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:string . # active | deprecated
+ex:ruleOrder    a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:integer .
+ex:replacedBy   a owl:ObjectProperty   ; rdfs:domain ex:Rule ; rdfs:range ex:Rule .
+
+# ------------------------------------------------------------
+# Geographic / Census Classes
+# ------------------------------------------------------------
+
+ex:GeographicArea
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Geographic Area" ;
+    rdfs:comment "Any geographic unit: country, state, county, tract, block group." .
+
+ex:Country
+    a owl:Class ;
+    rdfs:subClassOf ex:GeographicArea ;
+    rdfs:label "Country" .
+
+ex:State
+    a owl:Class ;
+    rdfs:subClassOf ex:GeographicArea ;
+    rdfs:label "State" .
+
+ex:County
+    a owl:Class ;
+    rdfs:subClassOf ex:GeographicArea ;
+    rdfs:label "County" .
+
+ex:CensusRegion
+    a owl:Class ;
+    rdfs:subClassOf ex:GeographicArea ;
+    rdfs:label "Census Region" ;
+    rdfs:comment "Official US Census Bureau region (Northeast, Midwest, South, West)." .
+
+ex:CensusTract
+    a owl:Class ;
+    rdfs:subClassOf ex:GeographicArea ;
+    rdfs:label "Census Tract" ;
+    rdfs:comment "Small, relatively permanent statistical subdivision of a county." .
+
+# ------------------------------------------------------------
+# Economic Classes
+# ------------------------------------------------------------
+
+ex:EconomicIndicator
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Economic Indicator" ;
+    rdfs:comment "A measurable economic variable (GDP, unemployment rate, median income, etc.)." .
+
+ex:Organization
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Organization" ;
+    rdfs:comment "A company, government agency, non-profit, or other organized body." .
+
+ex:Person
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Person" .
+
+ex:Event
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Event" ;
+    rdfs:comment "A dated occurrence — economic report release, census cycle, policy change." .
+
+# ------------------------------------------------------------
+# Core Object Properties
+# ------------------------------------------------------------
+
+ex:inRegion
+    a owl:ObjectProperty ;
+    rdfs:domain ex:Entity ;
+    rdfs:range  ex:GeographicArea ;
+    rdfs:label "in region" .
+
+ex:partOf
+    a owl:ObjectProperty, owl:TransitiveProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  ex:GeographicArea ;
+    rdfs:label "part of" .
+
+ex:relatedTo
+    a owl:ObjectProperty, owl:SymmetricProperty ;
+    rdfs:domain ex:Entity ;
+    rdfs:range  ex:Entity ;
+    rdfs:label "related to" .
+
+ex:sourceDocument
+    a owl:ObjectProperty ;
+    rdfs:domain ex:Entity ;
+    rdfs:range  ex:Document ;
+    rdfs:label "source document" .
+
+# ------------------------------------------------------------
+# Core Datatype Properties
+# ------------------------------------------------------------
+
+ex:hasValue
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:EconomicIndicator ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "has value" .
+
+ex:forYear
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:EconomicIndicator ;
+    rdfs:range  xsd:gYear ;
+    rdfs:label "for year" .
+
+ex:geoid
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:string ;
+    rdfs:label "GEOID" ;
+    rdfs:comment "US Census Bureau GEOID identifier." .
+
+ex:fipsCode
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:string ;
+    rdfs:label "FIPS code" .
+
+ex:slug
+    a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "slug" ;
+    rdfs:comment "Human-readable URL slug. Convenience alias; canonical IRI is the UUID form." .
+
+ex:mintedAt
+    a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "minted at" .
+
+ex:mintedFrom
+    a owl:ObjectProperty ;
+    rdfs:range ex:Document ;
+    rdfs:label "minted from" .
+
+# ------------------------------------------------------------
+# Bi-Temporal + Provenance Properties (applied via RDF-star)
+# ------------------------------------------------------------
+
+ex:validFrom
+    a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "valid from" ;
+    rdfs:comment "Start of the interval during which the fact was true in the world." .
+
+ex:validTo
+    a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "valid to" ;
+    rdfs:comment "End of valid time. Open interval if absent." .
+
+ex:transactionTime
+    a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "transaction time" ;
+    rdfs:comment "When the triple was recorded in the graph." .
+
+ex:confidence
+    a owl:DatatypeProperty ;
+    rdfs:range xsd:decimal ;
+    rdfs:label "confidence" ;
+    rdfs:comment "Extraction confidence score [0.0–1.0]." .
+
+ex:extractionMethod
+    a owl:DatatypeProperty ;
+    rdfs:range xsd:string ;
+    rdfs:label "extraction method" ;
+    rdfs:comment "E.g. 'llm:gpt-4o', 'rule-based-nlp'." .
+
+ex:extractedAt
+    a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime ;
+    rdfs:label "extracted at" .

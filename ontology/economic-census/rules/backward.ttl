@@ -1,0 +1,33 @@
+@prefix ex:  <https://kg.unconcealment.io/ontology/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# ============================================================
+# Backward Chaining Rules — economic-census dataset
+# Execution: tabled LP backward chaining (query-time, via InfModel)
+# These rules are evaluated on-demand; they do NOT materialize triples.
+# ============================================================
+
+# Canonical entity resolution:
+# If asked about ?canonical, return triples from all co-referent aliases.
+# (owl:sameAs closure handles this via forward rules; backward rule here for explicit traversal)
+ex:rule_canonical_resolution
+    a ex:BackwardRule ;
+    ex:ruleName    "Canonical Entity Resolution" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   10 ;
+    ex:ruleBody    """[canonicalResolution: (?canonical ex:hasProperty ?v) <- (?alias owl:sameAs ?canonical), (?alias ex:hasProperty ?v)]""" .
+
+# Geographic context derivation:
+# An economic indicator is implicitly in a region if its associated entity is in that region.
+ex:rule_indicator_region
+    a ex:BackwardRule ;
+    ex:ruleName    "Economic Indicator Region Derivation" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   20 ;
+    ex:ruleBody    """[indicatorRegion: (?indicator ex:inRegion ?region) <- (?indicator rdf:type ex:EconomicIndicator), (?indicator ex:sourceDocument ?doc), (?doc ex:inRegion ?region)]""" .
+
+# Stub: domain-specific backward rules to be added as ontology matures
+# ex:rule_economic_classification — classify entity as EconomicIndicator based on predicate patterns
+# ex:rule_census_area_lookup — derive CensusTract membership from GEOID string patterns

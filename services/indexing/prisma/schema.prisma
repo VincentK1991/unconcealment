@@ -1,0 +1,38 @@
+// Prisma schema — unconcealment indexing service
+// Database: PostgreSQL with pgvector extension
+// Purpose: stores raw document chunks and their vector embeddings for similarity search.
+// The RDF provenance graph holds a reference back to the Postgres row ID.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector, uuidOssp(map: "uuid-ossp")]
+}
+
+// A chunk is a segment of a source document, stored with its vector embedding.
+// One source document produces many chunks.
+model DocumentChunk {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  // IRI of the source document in the RDF graph (used to link back from provenance)
+  documentIri String
+  // Which dataset this chunk belongs to (matches manifest.yaml dataset id)
+  datasetId  String
+  // Raw text of this chunk
+  chunkText  String
+  // Chunk position within the source document (0-indexed)
+  chunkIndex Int
+  // OpenAI text-embedding-3-small vector (1536 dimensions)
+  embedding  Unsupported("vector(1536)")?
+  // Original source URL or file path
+  sourceUrl  String
+  createdAt  DateTime @default(now())
+
+  @@index([documentIri])
+  @@index([datasetId])
+  @@map("document_chunks")
+}

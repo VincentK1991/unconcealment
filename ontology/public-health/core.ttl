@@ -1,0 +1,272 @@
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex:   <http://localhost:4321/ontology/> .
+
+# ============================================================
+# Ontology: Public Health Data
+# Dataset:  public-health
+# Sources:  America's Health Rankings (AHR) 2021
+#           CMS Medicare hospital_general_info + inpatient_charges_2015
+# ============================================================
+
+<http://localhost:4321/ontology/public-health>
+    a owl:Ontology ;
+    rdfs:label "Public Health Data Ontology" ;
+    owl:versionInfo "0.2.0" ;
+    owl:imports <http://localhost:4321/ontology/economic-census> .
+    # Imports State and County classes from economic-census ontology.
+    # Cross-dataset queries can join AHR state measures to ACS economic data
+    # and CMS hospital locations to ACS county demographics.
+
+# ============================================================
+# Core Classes
+# ============================================================
+
+ex:Hospital
+    a owl:Class ;
+    rdfs:label "Hospital" ;
+    rdfs:comment """
+        A Medicare-certified hospital identified by a CMS Certification Number (CCN).
+        Hospital IRIs are mintable: provider_id is a stable, nationally-unique government
+        identifier. Spatial location links to County and State via zip_code → FIPS crosswalk.
+        Source: bigquery-public-data.cms_medicare.hospital_general_info
+    """ .
+
+ex:HealthDisparityMeasure
+    a owl:Class ;
+    rdfs:label "Health Disparity Measure" ;
+    rdfs:comment """
+        A single (measure, state, subpopulation) observation from America's Health Rankings.
+        Encodes a health or social determinant value for a specific demographic group
+        within a US state. The gap between subpopulation values (e.g. Black vs. White
+        premature death rates) is a direct health disparity metric.
+        Source: bigquery-public-data.america_health_rankings.ahr
+    """ .
+
+ex:HealthIndicator
+    a owl:Class ;
+    rdfs:label "Health Indicator" ;
+    rdfs:comment """
+        A named health or social measure (e.g. 'Premature Death', 'Uninsured', 'Diabetes').
+        One HealthIndicator can have multiple HealthDisparityMeasure instances — one per
+        (state, subpopulation) combination. Use measure_name from AHR as the identifier.
+    """ .
+
+ex:MedicalProcedure
+    a owl:Class ;
+    rdfs:label "Medical Procedure" ;
+    rdfs:comment """
+        A DRG (Diagnosis Related Group) procedure parsed from the drg_definition field
+        of CMS Medicare inpatient charges. The drg_definition free-text encodes a DRG code,
+        clinical description, and severity suffix (W MCC = with major complication,
+        W CC = with complication, W/O MCC = without). LLM extraction builds this class
+        hierarchy at query time.
+        Source: bigquery-public-data.cms_medicare.inpatient_charges_2015
+    """ .
+
+ex:HospitalCharge
+    a owl:Class ;
+    rdfs:label "Hospital Charge" ;
+    rdfs:comment """
+        A (hospital, DRG procedure) billing record from CMS Medicare inpatient charges.
+        Links a Hospital to a MedicalProcedure with cost and volume information.
+        average_covered_charges is the billed amount; average_medicare_payments is actual payment.
+        The gap between them reveals cost-shifting patterns by hospital and state.
+        Source: bigquery-public-data.cms_medicare.inpatient_charges_2015
+    """ .
+
+# ============================================================
+# Object Properties
+# ============================================================
+
+ex:inRegion
+    a owl:ObjectProperty ;
+    rdfs:domain ex:Hospital ;
+    rdfs:range  ex:State ;      # ex:State imported from economic-census
+    rdfs:label "in region" ;
+    rdfs:comment "Links a hospital to its state. Use cms.state → AHR/ACS state joins." .
+
+ex:forState
+    a owl:ObjectProperty ;
+    rdfs:domain ex:HealthDisparityMeasure ;
+    rdfs:range  ex:State ;
+    rdfs:label "for state" ;
+    rdfs:comment "The US state this health disparity observation belongs to." .
+
+ex:measuresIndicator
+    a owl:ObjectProperty ;
+    rdfs:domain ex:HealthDisparityMeasure ;
+    rdfs:range  ex:HealthIndicator ;
+    rdfs:label "measures indicator" ;
+    rdfs:comment "The named health indicator (e.g. 'Premature Death') this measure instantiates." .
+
+ex:atHospital
+    a owl:ObjectProperty ;
+    rdfs:domain ex:HospitalCharge ;
+    rdfs:range  ex:Hospital ;
+    rdfs:label "at hospital" ;
+    rdfs:comment "The hospital where this DRG procedure charge was recorded." .
+
+ex:forProcedure
+    a owl:ObjectProperty ;
+    rdfs:domain ex:HospitalCharge ;
+    rdfs:range  ex:MedicalProcedure ;
+    rdfs:label "for procedure" ;
+    rdfs:comment "The medical procedure (DRG) this charge record covers." .
+
+# ============================================================
+# Datatype Properties — Hospital
+# ============================================================
+
+ex:cmsProviderID
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:Hospital ;
+    rdfs:range  xsd:string ;
+    rdfs:label "CMS provider ID" ;
+    rdfs:comment "CMS Certification Number (CCN). Stable, nationally unique. Use as join key across all CMS tables." .
+
+ex:hospitalName
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:Hospital ;
+    rdfs:range  xsd:string ;
+    rdfs:label "hospital name" .
+
+ex:hospitalType
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:Hospital ;
+    rdfs:range  xsd:string ;
+    rdfs:label "hospital type" ;
+    rdfs:comment "E.g. 'Acute Care Hospitals', 'Critical Access Hospitals', 'Psychiatric'." .
+
+ex:hospitalOwnership
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:Hospital ;
+    rdfs:range  xsd:string ;
+    rdfs:label "hospital ownership" ;
+    rdfs:comment "E.g. 'Voluntary non-profit - Private', 'Government - Local', 'Proprietary'." .
+
+ex:hasEmergencyServices
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:Hospital ;
+    rdfs:range  xsd:boolean ;
+    rdfs:label "has emergency services" .
+
+ex:cmsStarRating
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:Hospital ;
+    rdfs:range  xsd:integer ;
+    rdfs:label "CMS star rating" ;
+    rdfs:comment "CMS overall quality star rating 1-5. Sourced from hospital_overall_rating (stored as STRING in BigQuery — cast required)." .
+
+ex:hospitalReferralRegion
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:Hospital ;
+    rdfs:range  xsd:string ;
+    rdfs:label "hospital referral region" ;
+    rdfs:comment "Hospital Referral Region description, e.g. 'CA - Los Angeles'. Healthcare analytics geographic grouping." .
+
+# ============================================================
+# Datatype Properties — HealthDisparityMeasure
+# ============================================================
+
+ex:measureName
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HealthDisparityMeasure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "measure name" ;
+    rdfs:comment "AHR measure name (e.g. 'Premature Death', 'Uninsured', 'Diabetes')." .
+
+ex:subpopulation
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HealthDisparityMeasure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "subpopulation" ;
+    rdfs:comment "Demographic group (race, gender, education, urbanicity). NULL = overall population." .
+
+ex:measureValue
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HealthDisparityMeasure ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "measure value" ;
+    rdfs:comment "Numeric value. Units vary per measure (%, rate per 100k, Gini coefficient)." .
+
+ex:lowerCI
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HealthDisparityMeasure ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "lower confidence interval" .
+
+ex:upperCI
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HealthDisparityMeasure ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "upper confidence interval" .
+
+ex:dataSource
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HealthDisparityMeasure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "data source" ;
+    rdfs:comment "Source citation embedded in the AHR data (provenance field, maps to RDF-star annotation)." .
+
+ex:dataSourceDate
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HealthDisparityMeasure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "data source date" ;
+    rdfs:comment "Reference period of the source data (e.g. '2019', '2015-2019')." .
+
+# ============================================================
+# Datatype Properties — MedicalProcedure / HospitalCharge
+# ============================================================
+
+ex:drgCode
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:MedicalProcedure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "DRG code" ;
+    rdfs:comment "Numeric DRG code extracted from drg_definition (e.g. '470')." .
+
+ex:drgDescription
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:MedicalProcedure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "DRG description" ;
+    rdfs:comment "Clinical procedure description parsed from drg_definition free-text." .
+
+ex:drgSeverity
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:MedicalProcedure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "DRG severity suffix" ;
+    rdfs:comment "Severity/complication level: 'W MCC' (with major complication), 'W CC' (with complication), 'W/O MCC' (without)." .
+
+ex:totalDischarges
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HospitalCharge ;
+    rdfs:range  xsd:integer ;
+    rdfs:label "total discharges" ;
+    rdfs:comment "Number of Medicare patient discharges for this DRG at this hospital." .
+
+ex:averageCoveredCharges
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HospitalCharge ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "average covered charges" ;
+    rdfs:comment "Average amount billed to Medicare ($). Typically much higher than actual payment." .
+
+ex:averageTotalPayments
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HospitalCharge ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "average total payments" ;
+    rdfs:comment "Average total payment received including patient cost-sharing ($)." .
+
+ex:averageMedicarePayments
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:HospitalCharge ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "average Medicare payments" ;
+    rdfs:comment "Average Medicare payment only, excluding patient cost-sharing ($)." .

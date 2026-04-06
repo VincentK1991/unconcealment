@@ -1,0 +1,450 @@
+# BigQuery Semantic Binding Layer — economic-census dataset
+#
+# This file tells the LLM how to query Google BigQuery tables at query time.
+# No data is copied into the RDF store — queries are generated on-demand.
+#
+# See docs/exploratory_data_analysis/census/ for full EDA findings.
+#
+# Join key across all tables: 5-digit county FIPS code
+#   ACS:               SUBSTR(geo_id, -5)              → e.g. "36079"
+#   Opportunity Atlas: LPAD(state,2,'0') || LPAD(county,3,'0')
+#   BLS QCEW:          geoid                            → e.g. "36079"
+
+project: bigquery-public-data
+
+tables:
+
+  # ---------------------------------------------------------------
+  # ACS — County Level (1-year, latest)
+  # ---------------------------------------------------------------
+  - id: acs_county_1yr
+    dataset: census_bureau_acs
+    table: county_2021_1yr
+    description: >
+      American Community Survey 1-year estimates at the county level (2021).
+      Covers ~820 US counties with population ≥65,000. Most current ACS data available.
+      200+ columns spanning income, poverty, demographics, education, employment, housing, and commuting.
+      Use this for populous counties. For smaller counties (<65k pop) use acs_county_5yr instead.
+    rdfBinding:
+      entityClass: https://kg.unconcealment.io/ontology/County
+      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      joinExpression: "SUBSTR(geo_id, -5)"   # extracts 5-digit FIPS from full geo_id
+    keyColumns:
+      - name: geo_id
+        type: STRING
+        description: "Full GEOID e.g. '0500000US36079'. Strip prefix with SUBSTR(geo_id,-5) to get 5-digit FIPS."
+      - name: total_pop
+        type: FLOAT
+        description: "Total population"
+      - name: median_income
+        type: FLOAT
+        description: "Median household income (inflation-adjusted, dollars)"
+      - name: income_per_capita
+        type: FLOAT
+        description: "Per capita income (dollars)"
+      - name: poverty
+        type: FLOAT
+        description: "Population count below the federal poverty level"
+      - name: unemployed_pop
+        type: FLOAT
+        description: "Unemployed population count"
+      - name: gini_index
+        type: FLOAT
+        description: "Gini coefficient of income inequality [0-1]. Higher = more unequal."
+      - name: percent_income_spent_on_rent
+        type: FLOAT
+        description: "Median rent as percentage of household income (rent burden)"
+      - name: median_rent
+        type: FLOAT
+        description: "Median gross rent (dollars per month)"
+      - name: owner_occupied_housing_units_median_value
+        type: FLOAT
+        description: "Median value of owner-occupied housing units (dollars)"
+      - name: median_age
+        type: FLOAT
+        description: "Median age of population"
+      - name: white_pop
+        type: FLOAT
+        description: "White non-Hispanic population count"
+      - name: black_pop
+        type: FLOAT
+        description: "Black/African American population count"
+      - name: hispanic_pop
+        type: FLOAT
+        description: "Hispanic/Latino population count"
+      - name: asian_pop
+        type: FLOAT
+        description: "Asian population count"
+      - name: bachelors_degree_or_higher_25_64
+        type: FLOAT
+        description: "Population aged 25-64 with bachelor's degree or higher"
+      - name: less_than_high_school_graduate
+        type: FLOAT
+        description: "Population 25+ without a high school diploma"
+      - name: employed_manufacturing
+        type: FLOAT
+        description: "Workers employed in manufacturing"
+      - name: employed_education_health_social
+        type: FLOAT
+        description: "Workers employed in education, health, and social services"
+      - name: commuters_by_public_transportation
+        type: FLOAT
+        description: "Workers who commute by public transportation"
+      - name: worked_at_home
+        type: FLOAT
+        description: "Workers who worked from home"
+    queryExamples:
+      - intent: "Get key economic indicators for a county by FIPS code"
+        sql: |
+          SELECT geo_id, total_pop, median_income, income_per_capita,
+                 poverty, unemployed_pop, gini_index, percent_income_spent_on_rent
+          FROM `bigquery-public-data.census_bureau_acs.county_2021_1yr`
+          WHERE SUBSTR(geo_id, -5) = @fips
+          LIMIT 1
+      - intent: "Find the most economically unequal counties (highest Gini index)"
+        sql: |
+          SELECT geo_id, total_pop, median_income, gini_index, poverty
+          FROM `bigquery-public-data.census_bureau_acs.county_2021_1yr`
+          WHERE gini_index IS NOT NULL
+          ORDER BY gini_index DESC
+          LIMIT 20
+      - intent: "Compare rent burden across counties in a state"
+        sql: |
+          SELECT geo_id, total_pop, median_income, median_rent, percent_income_spent_on_rent
+          FROM `bigquery-public-data.census_bureau_acs.county_2021_1yr`
+          WHERE SUBSTR(geo_id, 10, 2) = @state_fips
+          ORDER BY percent_income_spent_on_rent DESC
+
+  # ---------------------------------------------------------------
+  # ACS — County Level (5-year, full coverage)
+  # ---------------------------------------------------------------
+  - id: acs_county_5yr
+    dataset: census_bureau_acs
+    table: county_2020_5yr
+    description: >
+      American Community Survey 5-year estimates at the county level (2016-2020 average).
+      Covers ALL 3,200+ US counties including rural and small counties.
+      More statistically reliable than 1-year estimates for small populations.
+      Use when county population is below 65,000 or when 1-year data is missing.
+      Same column schema as county_2021_1yr.
+    rdfBinding:
+      entityClass: https://kg.unconcealment.io/ontology/County
+      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      joinExpression: "SUBSTR(geo_id, -5)"
+    keyColumns:
+      - name: geo_id
+        type: STRING
+        description: "Full GEOID. SUBSTR(geo_id,-5) = 5-digit county FIPS."
+      - name: total_pop
+        type: FLOAT
+        description: "Total population"
+      - name: median_income
+        type: FLOAT
+        description: "Median household income (5-year average, inflation-adjusted)"
+      - name: poverty
+        type: FLOAT
+        description: "Population below poverty level"
+      - name: gini_index
+        type: FLOAT
+        description: "Gini coefficient of income inequality"
+      - name: median_rent
+        type: FLOAT
+        description: "Median gross rent"
+      - name: unemployed_pop
+        type: FLOAT
+        description: "Unemployed population"
+    queryExamples:
+      - intent: "Get economic profile for a small county by FIPS (use 5yr for full coverage)"
+        sql: |
+          SELECT geo_id, total_pop, median_income, poverty, gini_index, median_rent, unemployed_pop
+          FROM `bigquery-public-data.census_bureau_acs.county_2020_5yr`
+          WHERE SUBSTR(geo_id, -5) = @fips
+          LIMIT 1
+
+  # ---------------------------------------------------------------
+  # ACS — State Level
+  # ---------------------------------------------------------------
+  - id: acs_state_1yr
+    dataset: census_bureau_acs
+    table: state_2021_1yr
+    description: >
+      American Community Survey 1-year estimates at the state level (2021).
+      Covers all 50 US states + DC. Same 200+ column schema as county tables.
+      Use for state-level comparisons and as context for county-level analysis.
+    rdfBinding:
+      entityClass: https://kg.unconcealment.io/ontology/State
+      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      joinExpression: "SUBSTR(geo_id, -2)"  # 2-digit state FIPS
+    keyColumns:
+      - name: geo_id
+        type: STRING
+        description: "Full GEOID e.g. '0400000US36' for New York. SUBSTR(geo_id,-2) = 2-digit state FIPS."
+      - name: total_pop
+        type: FLOAT
+        description: "Total state population"
+      - name: median_income
+        type: FLOAT
+        description: "Median household income"
+      - name: gini_index
+        type: FLOAT
+        description: "State-level income inequality (Gini coefficient)"
+      - name: poverty
+        type: FLOAT
+        description: "Population below poverty level"
+      - name: unemployed_pop
+        type: FLOAT
+        description: "Unemployed population"
+      - name: bachelors_degree_or_higher_25_64
+        type: FLOAT
+        description: "College-educated workforce age 25-64"
+    queryExamples:
+      - intent: "Rank all states by median income"
+        sql: |
+          SELECT geo_id, median_income, total_pop, poverty, gini_index
+          FROM `bigquery-public-data.census_bureau_acs.state_2021_1yr`
+          ORDER BY median_income DESC
+
+  # ---------------------------------------------------------------
+  # Opportunity Atlas — Intergenerational Mobility Outcomes
+  # ---------------------------------------------------------------
+  - id: opportunity_atlas_outcomes
+    dataset: census_opportunity_atlas
+    table: tract_outcomes
+    description: >
+      Raj Chetty et al. (2018) intergenerational mobility outcomes at the census tract level.
+      Measures where children end up as adults based on where they grew up.
+      Columns follow pattern: {outcome}_{race}_{gender}_{parent_income_percentile}
+      Outcomes: kfr (family income rank), kir (individual income rank), jail, married, working, teenbrth, has_dad
+      Races: pooled, white, black, hisp, asian, natam
+      Genders: male, female (or pooled = both)
+      Parent income percentiles: p1, p25, p50, p75, p100, mean
+      Key metric for upward mobility: kfr_pooled_pooled_p25 (family income rank for children from p25 families)
+    rdfBinding:
+      entityClass: https://kg.unconcealment.io/ontology/CensusTract
+      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      joinExpression: "LPAD(CAST(state AS STRING),2,'0') || LPAD(CAST(county AS STRING),3,'0')"
+    keyColumns:
+      - name: state
+        type: INTEGER
+        description: "State FIPS code (e.g. 36 for New York)"
+      - name: county
+        type: INTEGER
+        description: "County FIPS within state (e.g. 79 for Rockland County, NY)"
+      - name: tract
+        type: INTEGER
+        description: "Census tract number"
+      - name: kfr_pooled_pooled_p25
+        type: FLOAT
+        description: "Mean family income rank at age 35 for ALL children whose parents were at the 25th income percentile. Primary upward mobility metric. Higher = more mobility from lower-income families."
+      - name: kfr_black_pooled_p25
+        type: FLOAT
+        description: "Mean family income rank for Black children from p25 families"
+      - name: kfr_white_pooled_p25
+        type: FLOAT
+        description: "Mean family income rank for white children from p25 families"
+      - name: kfr_hisp_pooled_p25
+        type: FLOAT
+        description: "Mean family income rank for Hispanic children from p25 families"
+      - name: jail_pooled_pooled_mean
+        type: FLOAT
+        description: "Fraction of all children incarcerated on April 1, 2010"
+      - name: jail_black_male_mean
+        type: FLOAT
+        description: "Fraction of Black males incarcerated — key racial disparity metric"
+      - name: married_pooled_female_mean
+        type: FLOAT
+        description: "Fraction of women who are married in 2015"
+      - name: working_pooled_pooled_mean
+        type: FLOAT
+        description: "Fraction of children who are employed (have positive W-2 income)"
+      - name: teenbrth_pooled_female_mean
+        type: FLOAT
+        description: "Fraction of women who had a child before age 20"
+    queryExamples:
+      - intent: "Find tracts with highest upward mobility for children from low-income families"
+        sql: |
+          SELECT state, county, tract, kfr_pooled_pooled_p25,
+                 kfr_black_pooled_p25, kfr_white_pooled_p25
+          FROM `bigquery-public-data.census_opportunity_atlas.tract_outcomes`
+          WHERE kfr_pooled_pooled_p25 IS NOT NULL
+          ORDER BY kfr_pooled_pooled_p25 DESC
+          LIMIT 20
+      - intent: "Measure racial mobility gap in a specific county"
+        sql: |
+          SELECT state, county, tract,
+            kfr_white_pooled_p25,
+            kfr_black_pooled_p25,
+            kfr_white_pooled_p25 - kfr_black_pooled_p25 AS white_black_gap
+          FROM `bigquery-public-data.census_opportunity_atlas.tract_outcomes`
+          WHERE LPAD(CAST(state AS STRING),2,'0') || LPAD(CAST(county AS STRING),3,'0') = @county_fips
+            AND kfr_white_pooled_p25 IS NOT NULL
+            AND kfr_black_pooled_p25 IS NOT NULL
+          ORDER BY white_black_gap DESC
+      - intent: "Find tracts where Black children have unusually high incarceration rates"
+        sql: |
+          SELECT state, county, tract, jail_black_male_mean, kfr_black_male_p25
+          FROM `bigquery-public-data.census_opportunity_atlas.tract_outcomes`
+          WHERE jail_black_male_mean IS NOT NULL
+          ORDER BY jail_black_male_mean DESC
+          LIMIT 20
+
+  # ---------------------------------------------------------------
+  # Opportunity Atlas — Structural Covariates
+  # ---------------------------------------------------------------
+  - id: opportunity_atlas_covariates
+    dataset: census_opportunity_atlas
+    table: tract_covariates
+    description: >
+      Neighborhood structural characteristics per census tract from Chetty et al.
+      Covers poverty share, income, college attainment, job density, racial composition,
+      single-parent households, commute times, and school test scores across 1990/2000/2010.
+      Join to tract_outcomes on (state, county, tract) to understand what drives mobility.
+      The czname column provides human-readable commuting zone name (only STRING field).
+    rdfBinding:
+      entityClass: https://kg.unconcealment.io/ontology/CensusTract
+      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      joinExpression: "LPAD(CAST(state AS STRING),2,'0') || LPAD(CAST(county AS STRING),3,'0')"
+    keyColumns:
+      - name: state
+        type: INTEGER
+        description: "State FIPS code"
+      - name: county
+        type: INTEGER
+        description: "County FIPS within state"
+      - name: tract
+        type: INTEGER
+        description: "Census tract number"
+      - name: czname
+        type: STRING
+        description: "Commuting zone name (e.g. 'New York', 'Chicago') — geographic label"
+      - name: med_hhinc2016
+        type: INTEGER
+        description: "Median household income 2016 (dollars)"
+      - name: poor_share2010
+        type: FLOAT
+        description: "Share of population below poverty line in 2010"
+      - name: poor_share2000
+        type: FLOAT
+        description: "Share of population below poverty line in 2000 — tracks change over decade"
+      - name: frac_coll_plus2010
+        type: FLOAT
+        description: "Fraction of adults with college degree or higher in 2010"
+      - name: job_density_2013
+        type: FLOAT
+        description: "Jobs per square mile in 2013"
+      - name: jobs_highpay_5mi_2015
+        type: INTEGER
+        description: "High-paying jobs within 5 miles of tract centroid in 2015"
+      - name: singleparent_share2010
+        type: FLOAT
+        description: "Fraction of households with children that are single-parent in 2010"
+      - name: share_black2010
+        type: FLOAT
+        description: "Fraction of population that is Black in 2010"
+      - name: gsmn_math_g3_2013
+        type: FLOAT
+        description: "Mean 3rd grade math test scores in 2013 (standardized, national average = 0)"
+      - name: ann_avg_job_growth_2004_2013
+        type: FLOAT
+        description: "Annual average job growth rate 2004-2013"
+    queryExamples:
+      - intent: "Find structural factors correlated with low mobility in a county"
+        sql: |
+          SELECT o.state, o.county, o.tract, c.czname,
+            o.kfr_pooled_pooled_p25 AS upward_mobility,
+            c.poor_share2010, c.frac_coll_plus2010,
+            c.job_density_2013, c.singleparent_share2010,
+            c.gsmn_math_g3_2013
+          FROM `bigquery-public-data.census_opportunity_atlas.tract_outcomes` o
+          JOIN `bigquery-public-data.census_opportunity_atlas.tract_covariates` c
+            ON o.state = c.state AND o.county = c.county AND o.tract = c.tract
+          WHERE LPAD(CAST(o.state AS STRING),2,'0') || LPAD(CAST(o.county AS STRING),3,'0') = @county_fips
+          ORDER BY upward_mobility
+
+  # ---------------------------------------------------------------
+  # BLS QCEW — Employment and Wages by Industry Sector
+  # ---------------------------------------------------------------
+  - id: bls_qcew_2019
+    dataset: bls_qcew
+    table: 2019_q2
+    description: >
+      Bureau of Labor Statistics Quarterly Census of Employment and Wages, 2019 Q2.
+      County-level employment count, establishment count, and average weekly wage
+      for each NAICS industry sector. Also includes location quotients (lq_*) showing
+      whether an industry is over- or under-represented relative to national average.
+      Latest available year in BigQuery is 2019. Q2 used for stable annual comparison.
+      Join to ACS tables via 5-digit FIPS (geoid column).
+    rdfBinding:
+      entityClass: https://kg.unconcealment.io/ontology/County
+      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      joinExpression: "geoid"
+    keyColumns:
+      - name: geoid
+        type: STRING
+        description: "5-digit county FIPS code (e.g. '36079'). Joins directly to SUBSTR(acs.geo_id,-5)."
+      - name: avg_wkly_wage_31_33_manufacturing
+        type: FLOAT
+        description: "Average weekly wage in manufacturing ($)"
+      - name: month3_emplvl_31_33_manufacturing
+        type: FLOAT
+        description: "Employment level in manufacturing (Q2 month 3)"
+      - name: lq_month3_emplvl_31_33_manufacturing
+        type: FLOAT
+        description: "Manufacturing employment location quotient. >1 = county more specialized than US average."
+      - name: avg_wkly_wage_62_health_care_and_social_assistance
+        type: FLOAT
+        description: "Average weekly wage in health care and social assistance"
+      - name: month3_emplvl_62_health_care_and_social_assistance
+        type: FLOAT
+        description: "Employment in health care and social assistance"
+      - name: lq_month3_emplvl_62_health_care_and_social_assistance
+        type: FLOAT
+        description: "Healthcare employment location quotient"
+      - name: avg_wkly_wage_52_finance_and_insurance
+        type: FLOAT
+        description: "Average weekly wage in finance and insurance"
+      - name: lq_month3_emplvl_52_finance_and_insurance
+        type: FLOAT
+        description: "Finance and insurance employment location quotient"
+      - name: avg_wkly_wage_44_45_retail_trade
+        type: FLOAT
+        description: "Average weekly wage in retail trade"
+      - name: month3_emplvl_44_45_retail_trade
+        type: FLOAT
+        description: "Employment in retail trade"
+    queryExamples:
+      - intent: "Find counties most specialized in manufacturing"
+        sql: |
+          SELECT geoid,
+            lq_month3_emplvl_31_33_manufacturing AS mfg_location_quotient,
+            avg_wkly_wage_31_33_manufacturing AS mfg_avg_weekly_wage,
+            month3_emplvl_31_33_manufacturing AS mfg_employment
+          FROM `bigquery-public-data.bls_qcew.2019_q2`
+          WHERE lq_month3_emplvl_31_33_manufacturing IS NOT NULL
+          ORDER BY mfg_location_quotient DESC
+          LIMIT 20
+      - intent: "Join QCEW wages to ACS income to see if wages track household income"
+        sql: |
+          SELECT
+            acs.geo_id,
+            acs.median_income AS acs_median_household_income,
+            qcew.avg_wkly_wage_62_health_care_and_social_assistance * 52 AS healthcare_annual_wage,
+            qcew.lq_month3_emplvl_62_health_care_and_social_assistance AS healthcare_lq
+          FROM `bigquery-public-data.census_bureau_acs.county_2021_1yr` acs
+          JOIN `bigquery-public-data.bls_qcew.2019_q2` qcew
+            ON SUBSTR(acs.geo_id, -5) = qcew.geoid
+          WHERE acs.total_pop > 100000
+          ORDER BY healthcare_lq DESC
+          LIMIT 20
+      - intent: "Get full industry wage and employment profile for a specific county"
+        sql: |
+          SELECT geoid,
+            avg_wkly_wage_31_33_manufacturing,
+            avg_wkly_wage_62_health_care_and_social_assistance,
+            avg_wkly_wage_52_finance_and_insurance,
+            avg_wkly_wage_54_professional_scientific_and_technical_services,
+            avg_wkly_wage_44_45_retail_trade,
+            avg_wkly_wage_72_accommodation_and_food_services
+          FROM `bigquery-public-data.bls_qcew.2019_q2`
+          WHERE geoid = @fips
+          LIMIT 1

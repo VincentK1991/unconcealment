@@ -1,0 +1,55 @@
+# Dataset Registry — unconcealment Knowledge Graph
+#
+# This file is the single source of truth for all datasets in the system.
+# The Java backend and TypeScript indexing pipeline read this manifest at startup.
+# No dataset IDs, named graph URIs, domain vocabulary, or base URIs are hardcoded
+# in application code — everything is derived from this file.
+#
+# Named graph URIs are derived at runtime from the dataset id:
+#   urn:{dataset-id}:{graph-role}   e.g. urn:economic-census:tbox:ontology
+#
+# IRI minting uses:
+#   {baseUri}/{type}/{uuid}         e.g. https://kg.unconcealment.io/entity/a7f3c291-...
+# Each dataset inherits the top-level baseUri unless it declares its own.
+#
+# To add a new dataset:
+#   1. Add a block below
+#   2. Create the ontology folder with core.ttl and rules/forward.ttl + backward.ttl
+#   3. Restart the backend — it will create the Fuseki dataset and load the ontology automatically
+
+# Global base URI for IRI minting. Used by all datasets unless overridden per dataset.
+baseUri: http://localhost:4321
+
+# IRI segment labels. Controls the path segment used when minting IRIs.
+# Pattern: {baseUri}/{segment}/{uuid}
+# Add new segments here as the ontology evolves — no code changes required.
+iriMinting:
+  tboxSegment:     ontology   # OWL classes, properties, rules (TBox artifacts)
+  aboxSegment:     entity     # all data instances regardless of rdf:type (ABox individuals)
+  documentSegment: document   # source documents referenced in provenance
+
+datasets:
+  - id: economic-census
+    label: "Economic & Census Data"
+    description: "US economic indicators, census geographies, demographic data from BigQuery public datasets"
+    # baseUri: https://census.example.com  # uncomment to override for this dataset
+    ontologyPath: ontology/economic-census/core.ttl
+    rules:
+      forward: ontology/economic-census/rules/forward.ttl
+      backward: ontology/economic-census/rules/backward.ttl
+    fusekiDataset: economic-census
+    bigquery:
+      enabled: true
+      bindingsPath: ontology/economic-census/bigquery-bindings.yaml
+
+  - id: public-health
+    label: "Public Health Data"
+    description: "Public health indicators, disease surveillance, demographic health outcomes"
+    ontologyPath: ontology/public-health/core.ttl
+    rules:
+      forward: ontology/public-health/rules/forward.ttl
+      backward: ontology/public-health/rules/backward.ttl
+    fusekiDataset: public-health
+    bigquery:
+      enabled: true
+      bindingsPath: ontology/public-health/bigquery-bindings.yaml

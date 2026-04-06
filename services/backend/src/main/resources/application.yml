@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: unconcealment-backend
+
+server:
+  port: ${BACKEND_PORT:8080}
+
+app:
+  # Path to the dataset manifest (relative to working directory or absolute)
+  manifest-path: ${MANIFEST_PATH:ontology/manifest.yaml}
+  # Fuseki base URL — datasets are appended per manifest entry
+  fuseki-url: ${FUSEKI_URL:http://localhost:3030}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    com.unconcealment: DEBUG
+    org.apache.jena: INFO

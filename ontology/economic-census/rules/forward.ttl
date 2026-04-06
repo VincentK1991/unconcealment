@@ -1,0 +1,72 @@
+@prefix ex:  <https://kg.unconcealment.io/ontology/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# ============================================================
+# Forward Chaining Rules — economic-census dataset
+# Execution: RETE forward chaining (materialized into urn:abox:inferred:economic-census)
+# These rules are loaded into the graph at startup and run at load/update time.
+# ============================================================
+
+# Geographic containment transitivity
+# If A partOf B and B partOf C, then A partOf C
+ex:rule_partOf_transitivity
+    a ex:ForwardRule ;
+    ex:ruleName    "Geographic partOf Transitivity" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   10 ;
+    ex:ruleBody    """[partOfTransitive: (?a ex:partOf ?b), (?b ex:partOf ?c) -> (?a ex:partOf ?c)]""" .
+
+# owl:sameAs symmetry
+ex:rule_sameAs_symmetry
+    a ex:ForwardRule ;
+    ex:ruleName    "sameAs Symmetry" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   20 ;
+    ex:ruleBody    """[sameAsSymm: (?a owl:sameAs ?b) -> (?b owl:sameAs ?a)]""" .
+
+# owl:sameAs transitivity
+ex:rule_sameAs_transitivity
+    a ex:ForwardRule ;
+    ex:ruleName    "sameAs Transitivity" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   30 ;
+    ex:ruleBody    """[sameAsTrans: (?a owl:sameAs ?b), (?b owl:sameAs ?c) -> (?a owl:sameAs ?c)]""" .
+
+# owl:sameAs property propagation (forward direction)
+ex:rule_sameAs_propagate_forward
+    a ex:ForwardRule ;
+    ex:ruleName    "sameAs Property Propagation (forward)" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   40 ;
+    ex:ruleBody    """[sameAsPropFwd: (?a owl:sameAs ?b), (?a ?p ?o) -> (?b ?p ?o)]""" .
+
+# owl:sameAs property propagation (backward direction)
+ex:rule_sameAs_propagate_backward
+    a ex:ForwardRule ;
+    ex:ruleName    "sameAs Property Propagation (backward)" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   50 ;
+    ex:ruleBody    """[sameAsPropBwd: (?a owl:sameAs ?b), (?b ?p ?o) -> (?a ?p ?o)]""" .
+
+# rdfs:subClassOf transitivity
+ex:rule_subClassOf_transitivity
+    a ex:ForwardRule ;
+    ex:ruleName    "subClassOf Transitivity" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   60 ;
+    ex:ruleBody    """[subClassTrans: (?a rdfs:subClassOf ?b), (?b rdfs:subClassOf ?c) -> (?a rdfs:subClassOf ?c)]""" .
+
+# type inheritance via subClassOf
+ex:rule_type_inheritance
+    a ex:ForwardRule ;
+    ex:ruleName    "Type Inheritance via subClassOf" ;
+    ex:ruleVersion "1.0.0" ;
+    ex:ruleStatus  "active" ;
+    ex:ruleOrder   70 ;
+    ex:ruleBody    """[typeInherit: (?x rdf:type ?c), (?c rdfs:subClassOf ?d) -> (?x rdf:type ?d)]""" .

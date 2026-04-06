@@ -1,0 +1,115 @@
+---
+// Canonical entity page. The UUID IRI is the stable, permanent identifier.
+// Supports content negotiation: Accept: text/html → this page
+// TODO (Phase 1): add Accept: application/ld+json → JSON-LD response
+//                           Accept: text/turtle    → Turtle response
+
+export const prerender = false;
+
+const { uuid } = Astro.params;
+const datasetId = Astro.url.searchParams.get("dataset") ?? "economic-census";
+
+const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
+
+// Base URI is not hardcoded — it comes from the manifest via the backend.
+// The web server asks the backend to resolve the canonical IRI for this UUID.
+// For now, construct it from the BASE_URI env var set at deploy time (populated from manifest.yaml baseUri).
+const BASE_URI = import.meta.env.BASE_URI;
+if (!BASE_URI) throw new Error("BASE_URI env var is required (set from manifest.yaml baseUri)");
+
+const entityIri = `${BASE_URI}/entity/${uuid}`;
+
+interface Triple {
+  p: { value: string };
+  o: { value: string; type: string };
+}
+
+let label = uuid;
+let triples: Triple[] = [];
+let error: string | null = null;
+
+try {
+  const sparql = `
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    SELECT ?p ?o WHERE {
+      <${entityIri}> ?p ?o .
+    }
+    LIMIT 100
+  `;
+  const res = await fetch(
+    `${BACKEND_URL}/query/reasoned?dataset=${datasetId}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/sparql-query" },
+      body: sparql,
+    }
+  );
+  if (res.ok) {
+    const data = await res.json() as { results?: { bindings?: Triple[] } };
+    triples = data?.results?.bindings ?? [];
+    const labelTriple = triples.find(
+      (t) => t.p.value === "http://www.w3.org/2000/01/rdf-schema#label"
+    );
+    if (labelTriple) label = labelTriple.o.value;
+  }
+} catch {
+  error = "Backend unavailable";
+}
+
+const shortPredicate = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{label} — unconcealment</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+      h1 { font-size: 1.6rem; }
+      .iri { font-size: 0.8rem; color: #777; word-break: break-all; }
+      table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
+      th { text-align: left; border-bottom: 2px solid #ccc; padding: 0.4rem 0.6rem; }
+      td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; vertical-align: top; }
+      td:first-child { color: #555; width: 30%; }
+      .error { color: #c00; }
+    </style>
+  </head>
+  <body>
+    <a href="/">← Home</a>
+    <h1>{label}</h1>
+    <p class="iri">{entityIri}</p>
+
+    {error && <p class="error">{error} — showing stub page</p>}
+
+    {triples.length > 0 ? (
+      <table>
+        <thead>
+          <tr>
+            <th>Predicate</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {triples.map((t) => (
+            <tr>
+              <td title={t.p.value}>{shortPredicate(t.p.value)}</td>
+              <td>
+                {t.o.type === "uri" ? (
+                  <a href={`/entity/${t.o.value.split("/").pop()}?dataset=${datasetId}`}>
+                    {t.o.value}
+                  </a>
+                ) : (
+                  t.o.value
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    ) : (
+      !error && <p>No properties found for this entity.</p>
+    )}
+  </body>
+</html>

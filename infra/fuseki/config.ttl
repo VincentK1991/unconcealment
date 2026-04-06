@@ -1,0 +1,99 @@
+@prefix :        <#> .
+@prefix fuseki:  <http://jena.apache.org/fuseki#> .
+@prefix rdf:     <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix tdb2:    <http://jena.apache.org/2016/tdb#> .
+@prefix ja:      <http://jena.hpl.hp.com/2005/11/Assembler#> .
+@prefix text:    <http://jena.apache.org/text#> .
+
+# ============================================================
+# Apache Jena Fuseki Configuration
+# Persistent TDB2 storage + Jena-text (Lucene) full-text index
+#
+# Datasets are created dynamically by the Java backend on startup
+# based on manifest.yaml. This config provides the base Fuseki
+# server setup; per-dataset TDB2 instances are managed in code.
+# ============================================================
+
+:server
+    a fuseki:Server ;
+    fuseki:services (
+        :service_economic_census
+        :service_public_health
+    ) .
+
+# ------------------------------------------------------------
+# economic-census dataset
+# ------------------------------------------------------------
+
+:service_economic_census
+    a fuseki:Service ;
+    fuseki:name "economic-census" ;
+    fuseki:serviceQuery     "sparql" ;
+    fuseki:serviceQuery     "query" ;
+    fuseki:serviceUpdate    "update" ;
+    fuseki:serviceUpload    "upload" ;
+    fuseki:serviceReadGraphStore  "get" ;
+    fuseki:serviceReadWriteGraphStore "data" ;
+    fuseki:dataset :dataset_economic_census .
+
+:dataset_economic_census
+    a text:TextDataset ;
+    text:dataset :tdb2_economic_census ;
+    text:index   :lucene_economic_census .
+
+:tdb2_economic_census
+    a tdb2:DatasetTDB2 ;
+    tdb2:location "/fuseki-base/databases/economic-census" .
+
+:lucene_economic_census
+    a text:TextIndexLucene ;
+    text:directory "/fuseki-base/lucene/economic-census" ;
+    text:entityMap :entity_map_economic_census .
+
+:entity_map_economic_census
+    a text:EntityMap ;
+    text:entityField "uri" ;
+    text:defaultField "label" ;
+    text:map (
+        [ text:field "label"   ; text:predicate rdfs:label ]
+        [ text:field "comment" ; text:predicate rdfs:comment ]
+    ) .
+
+# ------------------------------------------------------------
+# public-health dataset
+# ------------------------------------------------------------
+
+:service_public_health
+    a fuseki:Service ;
+    fuseki:name "public-health" ;
+    fuseki:serviceQuery     "sparql" ;
+    fuseki:serviceQuery     "query" ;
+    fuseki:serviceUpdate    "update" ;
+    fuseki:serviceUpload    "upload" ;
+    fuseki:serviceReadGraphStore  "get" ;
+    fuseki:serviceReadWriteGraphStore "data" ;
+    fuseki:dataset :dataset_public_health .
+
+:dataset_public_health
+    a text:TextDataset ;
+    text:dataset :tdb2_public_health ;
+    text:index   :lucene_public_health .
+
+:tdb2_public_health
+    a tdb2:DatasetTDB2 ;
+    tdb2:location "/fuseki-base/databases/public-health" .
+
+:lucene_public_health
+    a text:TextIndexLucene ;
+    text:directory "/fuseki-base/lucene/public-health" ;
+    text:entityMap :entity_map_public_health .
+
+:entity_map_public_health
+    a text:EntityMap ;
+    text:entityField "uri" ;
+    text:defaultField "label" ;
+    text:map (
+        [ text:field "label"   ; text:predicate rdfs:label ]
+        [ text:field "comment" ; text:predicate rdfs:comment ]
+    ) .

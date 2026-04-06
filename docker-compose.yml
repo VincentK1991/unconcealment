@@ -1,0 +1,104 @@
+services:
+
+  # ------------------------------------------------------------
+  # Postgres: Temporal server persistence
+  # ------------------------------------------------------------
+  postgres-temporal:
+    image: postgres:16
+    container_name: unconcealment-postgres-temporal
+    environment:
+      POSTGRES_DB: temporal
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: test1234
+    volumes:
+      - pg-temporal-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ------------------------------------------------------------
+  # Postgres: Knowledge Graph — document chunks + pgvector
+  # ------------------------------------------------------------
+  postgres-kg:
+    image: pgvector/pgvector:pg16
+    container_name: unconcealment-postgres-kg
+    environment:
+      POSTGRES_DB: kg
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: test1234
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg-kg-data:/var/lib/postgresql/data
+      - ./infra/postgres/init-kg.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kg"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ------------------------------------------------------------
+  # Temporal server (auto-setup: handles DB schema init)
+  # ------------------------------------------------------------
+  temporal:
+    image: temporalio/auto-setup:1.24
+    container_name: unconcealment-temporal
+    depends_on:
+      postgres-temporal:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: admin
+      POSTGRES_PWD: test1234
+      POSTGRES_SEEDS: postgres-temporal
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/dynamic-config.yaml
+    ports:
+      - "7233:7233"
+    volumes:
+      - ./infra/temporal/dynamic-config.yaml:/etc/temporal/dynamic-config.yaml:ro
+
+  # ------------------------------------------------------------
+  # Temporal UI
+  # ------------------------------------------------------------
+  temporal-ui:
+    image: temporalio/ui:2.26.2
+    container_name: unconcealment-temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8088:8080"
+
+  # ------------------------------------------------------------
+  # Apache Jena Fuseki (TDB2 + Jena-text)
+  # ------------------------------------------------------------
+  fuseki:
+    image: secoresearch/fuseki:5.5.0
+    container_name: unconcealment-fuseki
+    user: root
+    environment:
+      ADMIN_PASSWORD: test1234
+      JAVA_OPTS: -Xmx2g
+    ports:
+      - "3030:3030"
+    volumes:
+      - tdb2-data:/fuseki-base/databases
+      - lucene-data:/fuseki-base/lucene
+      - ./infra/fuseki/config.ttl:/fuseki-base/config.ttl:ro
+    command: ["java", "-cp", "*:/javalibs/*", "org.apache.jena.fuseki.main.cmds.FusekiServerCmd", "--config=/fuseki-base/config.ttl"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3030/$$/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pg-temporal-data:
+  pg-kg-data:
+  tdb2-data:
+  lucene-data:

@@ -1,0 +1,364 @@
+# BigQuery Semantic Binding Layer — public-health dataset
+#
+# This file tells the LLM how to query Google BigQuery tables at query time.
+# No data is copied into the RDF store — queries are generated on-demand.
+#
+# See docs/exploratory_data_analysis/public-health/ for full EDA findings.
+#
+# Geographic join keys:
+#   AHR (state level):   ahr.state_name  ↔  full state name (e.g. "Mississippi")
+#   CMS hospital:        cms.provider_id  (CMS Certification Number — stable, nationally unique)
+#   CMS → ACS county:   cms.zip_code → ZIP-FIPS crosswalk (no direct FIPS in CMS data)
+#   CMS → AHR:          cms.state (2-letter) ↔ state name lookup
+#   CMS inpatient → hospital: provider_id (join key across all CMS tables)
+
+project: bigquery-public-data
+
+tables:
+
+  # ---------------------------------------------------------------
+  # America's Health Rankings — State Health Disparities (2021)
+  # ---------------------------------------------------------------
+  - id: ahr_health_disparities
+    dataset: america_health_rankings
+    table: ahr
+    description: >
+      America's Health Rankings 2021 Health Disparities report. Long-format table:
+      one row per (measure, state, subpopulation) observation. Covers 50 states + DC.
+      30+ health and social measures including premature death, diabetes, smoking,
+      uninsured rates, food insecurity, poverty, and income inequality. Each measure is
+      broken down by race (White, Black, Hispanic, AIAN, API), gender, education level,
+      and urbanicity — enabling direct computation of health disparity gaps.
+      Source citations embedded in each row (maps to RDF-star provenance).
+      NOTE: Only 2021 Health Disparities data is in BigQuery. No annual report data.
+    rdfBinding:
+      entityClass: https://kg.unconcealment.io/ontology/HealthDisparityMeasure
+      joinProperty: https://kg.unconcealment.io/ontology/forState
+      joinExpression: "state_name"    # full state name — join to geographic entity by label
+    keyColumns:
+      - name: edition
+        type: INTEGER
+        description: "Report year (2021 only in BigQuery)"
+      - name: report_type
+        type: STRING
+        description: "Always '2021 Health Disparities' in this dataset"
+      - name: measure_name
+        type: STRING
+        description: >
+          Name of the health or social measure. Key values: 'Premature Death',
+          'Diabetes', 'Cardiovascular Diseases', 'Cancer', 'Smoking',
+          'Physical Inactivity', 'Frequent Mental Distress', 'Depression',
+          'Uninsured', 'Food Insecurity', 'Poverty', 'Unemployment',
+          'Income Inequality', 'Child Poverty', 'Low Birthweight', 'Infant Mortality'.
+      - name: state_name
+        type: STRING
+        description: "US state full name (e.g. 'Mississippi', 'California'). Joins to ACS state by name match."
+      - name: subpopulation
+        type: STRING
+        description: >
+          Demographic breakdown. NULL = overall/all populations.
+          Race: 'White', 'Black/African American', 'Hispanic', 'Asian/Pacific Islander',
+          'American Indian/Alaska Native', 'Other Race', 'Multiracial'.
+          Gender: 'Male', 'Female'.
+          Education: 'High School Grad', 'Less Than High School', 'Some College', 'College Grad'.
+          Urbanicity: 'Metropolitan Area', 'Non-Metropolitan Area'.
+      - name: value
+        type: FLOAT
+        description: "Measure value. Units vary by measure (%, rate per 100k, Gini coefficient, dollars). NULL for suppressed cells."
+      - name: lower_ci
+        type: FLOAT
+        description: "Lower bound of 95% confidence interval"
+      - name: upper_ci
+        type: FLOAT
+        description: "Upper bound of 95% confidence interval"
+      - name: source
+        type: STRING
+        description: "Data source citation (e.g. 'CDC, Behavioral Risk Factor Surveillance System'). Provenance field."
+      - name: source_date
+        type: STRING
+        description: "Reference period of source data (e.g. '2019', '2015-2019'). Provenance field."
+    queryExamples:
+      - description: "Racial gap in premature death by state (Black vs. White)"
+        sql: |
+          SELECT
+            b.state_name,
+            b.value AS black_premature_death,
+            w.value AS white_premature_death,
+            b.value - w.value AS racial_gap
+          FROM `bigquery-public-data.america_health_rankings.ahr` b
+          JOIN `bigquery-public-data.america_health_rankings.ahr` w
+            ON b.state_name = w.state_name
+            AND b.measure_name = w.measure_name
+            AND b.edition = w.edition
+          WHERE b.measure_name = 'Premature Death'
+            AND b.subpopulation = 'Black/African American'
+            AND w.subpopulation = 'White'
+            AND b.edition = 2021
+          ORDER BY racial_gap DESC
+      - description: "All health measures for a specific state (overall population)"
+        sql: |
+          SELECT measure_name, value, lower_ci, upper_ci, source, source_date
+          FROM `bigquery-public-data.america_health_rankings.ahr`
+          WHERE state_name = @state_name
+            AND edition = 2021
+            AND subpopulation IS NULL
+          ORDER BY measure_name
+      - description: "States with highest uninsured rate by race"
+        sql: |
+          SELECT state_name, subpopulation, value AS uninsured_pct
+          FROM `bigquery-public-data.america_health_rankings.ahr`
+          WHERE measure_name = 'Uninsured'
+            AND edition = 2021
+            AND value IS NOT NULL
+          ORDER BY value DESC
+          LIMIT 30
+      - description: "Cross-dataset: AHR uninsured rate joined to ACS poverty by state"
+        sql: |
+          SELECT
+            ahr_u.state_name,
+            ahr_u.value AS uninsured_pct,
+            ahr_p.value AS poverty_pct,
+            ahr_pd.value AS premature_death_rate
+          FROM `bigquery-public-data.america_health_rankings.ahr` ahr_u
+          JOIN `bigquery-public-data.america_health_rankings.ahr` ahr_p
+            ON ahr_u.state_name = ahr_p.state_name AND ahr_u.edition = ahr_p.edition
+          JOIN `bigquery-public-data.america_health_rankings.ahr` ahr_pd
+            ON ahr_u.state_name = ahr_pd.state_name AND ahr_u.edition = ahr_pd.edition
+          WHERE ahr_u.measure_name = 'Uninsured'
+            AND ahr_p.measure_name = 'Poverty'
+            AND ahr_pd.measure_name = 'Premature Death'
+            AND ahr_u.subpopulation IS NULL
+            AND ahr_p.subpopulation IS NULL
+            AND ahr_pd.subpopulation IS NULL
+            AND ahr_u.edition = 2021
+          ORDER BY uninsured_pct DESC
+
+  # ---------------------------------------------------------------
+  # CMS Medicare — Hospital General Info (Directory)
+  # ---------------------------------------------------------------
+  - id: cms_hospital_directory
+    dataset: cms_medicare
+    table: hospital_general_info
+    description: >
+      CMS hospital directory for all Medicare-certified hospitals in the US (~4,800 hospitals).
+      Contains hospital name, location, type, ownership, and quality metrics (star ratings,
+      mortality measures better/worse than national, readmission rates, patient experience).
+      provider_id (CMS Certification Number / CCN) is a stable, nationally-unique government
+      identifier — hospitals are mintable RDF entities with dereferenceable IRIs.
+      DATA QUALITY: Many quality metric columns use "Not Available" string instead of NULL —
+      always filter before casting to INT64. hospital_overall_rating stores "1"-"5" as strings.
+    rdfBinding:
+      entityClass: https://kg.unconcealment.io/ontology/Hospital
+      joinProperty: https://kg.unconcealment.io/ontology/cmsProviderID
+      joinExpression: "provider_id"
+    keyColumns:
+      - name: provider_id
+        type: STRING
+        description: "CMS Certification Number (CCN) — stable, nationally unique hospital ID. Use for all CMS table joins."
+      - name: hospital_name
+        type: STRING
+        description: "Hospital name (unstructured text)"
+      - name: address
+        type: STRING
+        description: "Street address (unstructured text)"
+      - name: city
+        type: STRING
+        description: "City"
+      - name: state
+        type: STRING
+        description: "2-letter state code. Join to AHR via state name lookup or to ACS via state abbreviation."
+      - name: zip_code
+        type: STRING
+        description: "ZIP code. Use for county-level joins via ZIP-FIPS crosswalk (no FIPS in CMS data natively)."
+      - name: county_name
+        type: STRING
+        description: "County name (text, not FIPS). Not directly joinable to FIPS-keyed tables without crosswalk."
+      - name: hospital_type
+        type: STRING
+        description: "Hospital type. Values: 'Acute Care Hospitals', 'Critical Access Hospitals', 'Psychiatric', 'Rehabilitation', 'Long-Term Care'."
+      - name: hospital_ownership
+        type: STRING
+        description: "Ownership category. Values: 'Voluntary non-profit - Private', 'Government - Local', 'Proprietary', 'Government - Federal', etc."
+      - name: emergency_services
+        type: BOOLEAN
+        description: "True if hospital has emergency department services"
+      - name: hospital_overall_rating
+        type: STRING
+        description: "CMS star rating 1-5 stored as STRING. 'Not Available' when insufficient data. Cast to INT64 for comparison."
+      - name: mortality_measures_better_count
+        type: STRING
+        description: "Count of mortality measures better than national average. 'Not Available' string used for missing — filter before CAST to INT64."
+      - name: mortality_measures_worse_count
+        type: STRING
+        description: "Count of mortality measures worse than national average. 'Not Available' string for missing."
+      - name: safety_measures_better_count
+        type: STRING
+        description: "Count of safety measures better than national. 'Not Available' string for missing."
+      - name: readmission_measures_better_count
+        type: STRING
+        description: "Count of readmission measures better than national. 'Not Available' string for missing."
+      - name: readmission_measures_worse_count
+        type: STRING
+        description: "Count of readmission measures worse than national. 'Not Available' string for missing."
+      - name: patient_experience_measures_count
+        type: STRING
+        description: "Count of patient experience measures reported. 'Not Available' string for missing."
+    queryExamples:
+      - description: "Hospitals with more-worse-than-better mortality measures (quality flag)"
+        sql: |
+          SELECT provider_id, hospital_name, city, state,
+            hospital_overall_rating,
+            CAST(mortality_measures_worse_count AS INT64) AS mortality_worse,
+            CAST(mortality_measures_better_count AS INT64) AS mortality_better
+          FROM `bigquery-public-data.cms_medicare.hospital_general_info`
+          WHERE mortality_measures_worse_count NOT IN ('Not Available', 'NULL')
+            AND mortality_measures_better_count NOT IN ('Not Available', 'NULL')
+            AND CAST(mortality_measures_worse_count AS INT64) >
+                CAST(mortality_measures_better_count AS INT64)
+          ORDER BY mortality_worse DESC
+          LIMIT 20
+      - description: "Hospitals in a state with emergency services and star rating"
+        sql: |
+          SELECT provider_id, hospital_name, city,
+            hospital_type, hospital_ownership,
+            CAST(hospital_overall_rating AS INT64) AS star_rating
+          FROM `bigquery-public-data.cms_medicare.hospital_general_info`
+          WHERE state = @state
+            AND emergency_services = TRUE
+            AND hospital_overall_rating NOT IN ('Not Available', 'NULL')
+          ORDER BY star_rating DESC
+      - description: "Hospital count and ER coverage by state"
+        sql: |
+          SELECT state,
+            COUNT(*) AS total_hospitals,
+            SUM(CASE WHEN emergency_services THEN 1 ELSE 0 END) AS er_hospitals,
+            COUNTIF(hospital_type = 'Critical Access Hospitals') AS critical_access_count,
+            ROUND(AVG(CASE WHEN hospital_overall_rating NOT IN ('Not Available','NULL')
+              THEN CAST(hospital_overall_rating AS FLOAT64) END), 2) AS avg_star_rating
+          FROM `bigquery-public-data.cms_medicare.hospital_general_info`
+          GROUP BY state
+          ORDER BY total_hospitals DESC
+
+  # ---------------------------------------------------------------
+  # CMS Medicare — Inpatient Charges 2015 (DRG Procedure Costs)
+  # ---------------------------------------------------------------
+  - id: cms_inpatient_charges
+    dataset: cms_medicare
+    table: inpatient_charges_2015
+    description: >
+      CMS Medicare inpatient hospital charges by DRG (Diagnosis Related Group) and hospital (2015).
+      One row per (hospital, DRG) pair. Covers ~163,000 hospital-DRG combinations.
+      drg_definition is the richest unstructured text field in any health dataset — free-text
+      clinical procedure descriptions parseable into a medical procedure ontology (severity
+      suffixes: W MCC = with major complication, W CC = with complication, W/O MCC = without).
+      Price variation for the same DRG across hospitals and states is a healthcare access inequality
+      signal. Data is from 2015 — a 10-year gap vs current — best for structural comparisons
+      not trending. Join to cms_hospital_directory on provider_id for quality+cost analysis.
+    rdfBinding:
+      entityClass: https://kg.unconcealment.io/ontology/MedicalProcedure
+      joinProperty: https://kg.unconcealment.io/ontology/cmsProviderID
+      joinExpression: "provider_id"
+    keyColumns:
+      - name: provider_id
+        type: STRING
+        description: "CMS Certification Number — joins to cms_hospital_directory.provider_id"
+      - name: provider_name
+        type: STRING
+        description: "Hospital name (denormalized from hospital_general_info)"
+      - name: provider_city
+        type: STRING
+        description: "Hospital city"
+      - name: provider_state
+        type: STRING
+        description: "2-letter state code"
+      - name: provider_zipcode
+        type: STRING
+        description: "ZIP code"
+      - name: drg_definition
+        type: STRING
+        description: >
+          UNSTRUCTURED TEXT: DRG code + full clinical procedure description.
+          Format: '{code} - {DESCRIPTION} [W/W/O MCC|CC]'.
+          Examples: '001 - HEART TRANSPLANT OR IMPLANT OF HEART ASSIST SYSTEM W MCC',
+          '470 - MAJOR JOINT REPLACEMENT OR REATTACHMENT OF LOWER EXTREMITY W/O MCC',
+          '871 - SEPTICEMIA OR SEVERE SEPSIS W/O MV >96 HOURS W MCC'.
+          Severity suffixes: W MCC (with major complication/comorbidity),
+          W CC (with complication/comorbidity), W/O MCC (without).
+          LLM extraction can parse this into MedicalProcedure hierarchy in the ontology.
+      - name: hospital_referral_region_description
+        type: STRING
+        description: "Hospital Referral Region (e.g. 'AL - Birmingham', 'CA - Los Angeles'). Healthcare analytics geographic grouping."
+      - name: total_discharges
+        type: INTEGER
+        description: "Number of Medicare patient discharges for this DRG at this hospital in 2015"
+      - name: average_covered_charges
+        type: FLOAT
+        description: "Average amount billed by hospital to Medicare for this DRG ($). Often much higher than actual payment."
+      - name: average_total_payments
+        type: FLOAT
+        description: "Average total payment received including patient cost-sharing ($)"
+      - name: average_medicare_payments
+        type: FLOAT
+        description: "Average Medicare payment only, excluding patient cost-sharing ($)"
+    queryExamples:
+      - description: "DRG cost variation by state — reveals healthcare price inequality"
+        sql: |
+          SELECT provider_state,
+            COUNT(DISTINCT provider_id) AS hospital_count,
+            AVG(average_covered_charges) AS avg_billed,
+            AVG(average_medicare_payments) AS avg_medicare_paid,
+            AVG(average_covered_charges) / NULLIF(AVG(average_medicare_payments), 0) AS markup_ratio
+          FROM `bigquery-public-data.cms_medicare.inpatient_charges_2015`
+          WHERE drg_definition LIKE '%SEPTICEMIA%'
+          GROUP BY provider_state
+          ORDER BY markup_ratio DESC
+      - description: "Most expensive DRGs by average Medicare payment nationally"
+        sql: |
+          SELECT
+            drg_definition,
+            COUNT(DISTINCT provider_id) AS hospital_count,
+            SUM(total_discharges) AS total_patients,
+            AVG(average_covered_charges) AS avg_billed,
+            AVG(average_medicare_payments) AS avg_medicare_paid
+          FROM `bigquery-public-data.cms_medicare.inpatient_charges_2015`
+          GROUP BY drg_definition
+          ORDER BY avg_medicare_paid DESC
+          LIMIT 20
+      - description: "Quality + cost combined: join hospital star rating to procedure cost"
+        sql: |
+          SELECT h.hospital_name, h.city, h.state,
+            h.hospital_overall_rating AS star_rating,
+            c.drg_definition,
+            c.total_discharges,
+            c.average_covered_charges,
+            c.average_medicare_payments
+          FROM `bigquery-public-data.cms_medicare.inpatient_charges_2015` c
+          JOIN `bigquery-public-data.cms_medicare.hospital_general_info` h
+            ON c.provider_id = h.provider_id
+          WHERE h.state = @state
+            AND c.drg_definition LIKE '%JOINT REPLACEMENT%'
+            AND h.hospital_overall_rating NOT IN ('Not Available', 'NULL')
+          ORDER BY c.average_covered_charges DESC
+      - description: "Cross-dataset: hospital density vs uninsured rate by state"
+        sql: |
+          SELECT
+            ahr.state_name,
+            ahr.value AS uninsured_pct,
+            COUNT(h.provider_id) AS total_hospitals,
+            SUM(CASE WHEN h.emergency_services THEN 1 ELSE 0 END) AS er_hospitals,
+            COUNT(h.provider_id) / 1000000.0 AS hospitals_per_million
+          FROM `bigquery-public-data.america_health_rankings.ahr` ahr
+          JOIN `bigquery-public-data.cms_medicare.hospital_general_info` h
+            ON UPPER(h.state) IN (
+              SELECT UPPER(abbrev) FROM UNNEST([
+                STRUCT('Alabama' AS name, 'AL' AS abbrev),
+                STRUCT('Alaska' AS name, 'AK' AS abbrev)
+                -- extend with full state abbreviation lookup
+              ])
+              WHERE name = ahr.state_name
+            )
+          WHERE ahr.measure_name = 'Uninsured'
+            AND ahr.subpopulation IS NULL
+            AND ahr.edition = 2021
+          GROUP BY ahr.state_name, ahr.value
+          ORDER BY uninsured_pct DESC

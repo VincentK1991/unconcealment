@@ -1,0 +1,39 @@
+# Java
+services/backend/target/
+services/backend/.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+
+# Node / TypeScript
+node_modules/
+services/indexing/node_modules/
+services/web/node_modules/
+services/indexing/dist/
+services/web/dist/
+services/web/.astro/
+
+# Prisma
+services/indexing/prisma/migrations/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Fuseki / TDB2
+infra/fuseki/tdb2/
+infra/fuseki/*.lock
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

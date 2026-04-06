@@ -1,0 +1,55 @@
+---
+// Human-readable slug redirect: /entity/apple-inc → /entity/{uuid}
+// The canonical IRI is always the UUID form; the slug is a convenience alias.
+
+export const prerender = false;
+
+const { slug } = Astro.params;
+const datasetId = Astro.url.searchParams.get("dataset") ?? "economic-census";
+
+const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
+
+// Query the backend to resolve slug → canonical UUID IRI
+let canonicalUuid: string | null = null;
+try {
+  const sparql = `
+    PREFIX ex: <https://kg.unconcealment.io/ontology/>
+    SELECT ?uuid WHERE {
+      ?entity ex:slug "${slug}" .
+      BIND(REPLACE(STR(?entity), ".*/", "") AS ?uuid)
+    }
+    LIMIT 1
+  `;
+  const res = await fetch(
+    `${BACKEND_URL}/query/raw?dataset=${datasetId}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/sparql-query" },
+      body: sparql,
+    }
+  );
+  if (res.ok) {
+    const data = await res.json() as { results?: { bindings?: Array<{ uuid?: { value: string } }> } };
+    canonicalUuid = data?.results?.bindings?.[0]?.uuid?.value ?? null;
+  }
+} catch {
+  // Backend unavailable at dev time
+}
+
+if (canonicalUuid) {
+  return Astro.redirect(`/entity/${canonicalUuid}?dataset=${datasetId}`, 301);
+}
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Entity not found — unconcealment</title>
+  </head>
+  <body>
+    <h1>Entity not found</h1>
+    <p>No entity with slug <code>{slug}</code> found in dataset <code>{datasetId}</code>.</p>
+    <a href="/">← Back to home</a>
+  </body>
+</html>
