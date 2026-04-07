@@ -13,7 +13,7 @@
 <https://kg.unconcealment.io/ontology/economic-census>
     a owl:Ontology ;
     rdfs:label "Economic & Census Data Ontology" ;
-    owl:versionInfo "0.1.0" .
+    owl:versionInfo "0.2.0" .
 
 # ------------------------------------------------------------
 # Core Infrastructure Classes (shared pattern across datasets)
@@ -104,16 +104,29 @@ ex:Organization
     rdfs:label "Organization" ;
     rdfs:comment "A company, government agency, non-profit, or other organized body." .
 
-ex:Person
+ex:IndustrySector
     a owl:Class ;
     rdfs:subClassOf ex:Entity ;
-    rdfs:label "Person" .
+    rdfs:label "Industry Sector" ;
+    rdfs:comment "An economic industry classification, typically represented by a NAICS code and title." .
 
-ex:Event
+ex:BusinessEstablishment
     a owl:Class ;
     rdfs:subClassOf ex:Entity ;
-    rdfs:label "Event" ;
-    rdfs:comment "A dated occurrence — economic report release, census cycle, policy change." .
+    rdfs:label "Business Establishment" ;
+    rdfs:comment "A business location or operating unit represented in economic census data." .
+
+ex:Household
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Household" ;
+    rdfs:comment "A census household unit used for housing, income, and poverty-related measures." .
+
+ex:LaborForceStatus
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Labor Force Status" ;
+    rdfs:comment "Employment status category such as employed, unemployed, or not in labor force." .
 
 # ------------------------------------------------------------
 # Core Object Properties
@@ -143,6 +156,20 @@ ex:sourceDocument
     rdfs:range  ex:Document ;
     rdfs:label "source document" .
 
+ex:inIndustry
+    a owl:ObjectProperty ;
+    rdfs:domain ex:BusinessEstablishment ;
+    rdfs:range  ex:IndustrySector ;
+    rdfs:label "in industry" ;
+    rdfs:comment "Associates a business establishment with an industry sector." .
+
+ex:hasLaborForceStatus
+    a owl:ObjectProperty ;
+    rdfs:domain ex:PopulationGroup ;
+    rdfs:range  ex:LaborForceStatus ;
+    rdfs:label "has labor force status" ;
+    rdfs:comment "Associates a population group with a labor force status category." .
+
 # ------------------------------------------------------------
 # Core Datatype Properties
 # ------------------------------------------------------------
@@ -171,6 +198,20 @@ ex:fipsCode
     rdfs:domain ex:GeographicArea ;
     rdfs:range  xsd:string ;
     rdfs:label "FIPS code" .
+
+ex:naicsCode
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:IndustrySector ;
+    rdfs:range  xsd:string ;
+    rdfs:label "NAICS code" ;
+    rdfs:comment "North American Industry Classification System code." .
+
+ex:householdSize
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:Household ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "household size" ;
+    rdfs:comment "Number of persons in the household." .
 
 ex:slug
     a owl:DatatypeProperty ;
@@ -226,3 +267,232 @@ ex:extractedAt
     a owl:DatatypeProperty ;
     rdfs:range xsd:dateTime ;
     rdfs:label "extracted at" .
+
+# ------------------------------------------------------------
+# Statistical Observation Classes (Census / QB-aligned)
+# ------------------------------------------------------------
+
+ex:StatisticalObservation
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Statistical Observation" ;
+    rdfs:comment "A single summary statistic from a census document. Use observationValue for the numeric value, marginOfError for the MOE, referenceYear (xsd:gYear) for the year the statistic describes, confidenceLevel (e.g. '90 percent') for the significance threshold, changeFromPriorYear for the year-over-year delta, and changeDirection ('increase'|'decrease'|'no_significant_change') for the direction of change. Link to a geographic area with refersToGeography, to a demographic subgroup with refersToGroup (omit for total population), to the measure concept with measures, to the source survey with derivedFrom, and to the report document with reportedIn." .
+
+ex:PopulationGroup
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Population Group" ;
+    rdfs:comment "A demographic subgroup that a statistical observation applies to. characteristicType values: 'age'|'sex'|'race'|'ethnicity'|'nativity'|'poverty_status'|'insurance_status'|'household_type'. characteristicValue is the human-readable label (e.g. '65 and over', 'Hispanic or Latino', 'Below poverty threshold', 'Foreign-born'). Use ombCode for the OMB race or ethnicity classification code where applicable." .
+
+ex:CensusSurvey
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Census Survey" ;
+    rdfs:comment "A Census Bureau survey program and vintage that produced statistical observations. surveyName values: 'American Community Survey', 'Current Population Survey ASEC', 'Survey of Income and Program Participation', 'Decennial Census', 'National Population Projections'. surveyVintage is the reference year as xsd:gYear. surveyMethodology values: '1-year estimates', '5-year estimates', 'cohort-component'." .
+
+ex:StatisticalMeasure
+    a owl:Class ;
+    rdfs:subClassOf ex:Entity ;
+    rdfs:label "Statistical Measure" ;
+    rdfs:comment "A named measure concept describing what is being counted or calculated. measureName examples: 'povertyRate', 'medianHouseholdIncome', 'totalPopulation', 'populationGrowthRate', 'medianAge', 'raceCompositionShare', 'apportionmentPopulation', 'projectedPopulation', 'naturalIncrease', 'netInternationalMigration', 'healthInsuranceCoverageRate', 'uninsuredRate', 'congressionalSeats'. measureUnit values: 'percent', 'dollars', 'persons', 'years', 'seats'. measureType values: 'rate'|'count'|'median'|'mean'|'ratio'|'projection'." .
+
+ex:MetropolitanStatisticalArea
+    a owl:Class ;
+    rdfs:subClassOf ex:GeographicArea ;
+    rdfs:label "Metropolitan Statistical Area" ;
+    rdfs:comment "An OMB-defined metropolitan statistical area (MSA) containing a core urban area with 50,000 or more people. Use cbsaCode for the numeric CBSA code (e.g. '33460' for Minneapolis-St. Paul MSA) and rdfs:label for the human-readable name." .
+
+ex:ReportDocument
+    a owl:Class ;
+    rdfs:subClassOf ex:Document ;
+    rdfs:label "Report Document" ;
+    rdfs:comment "A published Census Bureau report from which observations are extracted. seriesCode is the report identifier (e.g. 'c2020br-01', 'acsbr-022', 'p60-284', 'p25-1144', 'p70-212'). publicationDate is an xsd:date. Use sourceDocument to link extracted entities back to this report." .
+
+# ------------------------------------------------------------
+# Statistical Observation Object Properties
+# ------------------------------------------------------------
+
+ex:refersToGeography
+    a owl:ObjectProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  ex:GeographicArea ;
+    rdfs:label "refers to geography" ;
+    rdfs:comment "The geographic area this observation describes (nation, state, county, MSA, etc.)." .
+
+ex:refersToGroup
+    a owl:ObjectProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  ex:PopulationGroup ;
+    rdfs:label "refers to group" ;
+    rdfs:comment "The demographic subgroup this observation applies to. Omit if the observation covers the total population." .
+
+ex:measures
+    a owl:ObjectProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  ex:StatisticalMeasure ;
+    rdfs:label "measures" ;
+    rdfs:comment "The named measure concept being reported (e.g. povertyRate, medianHouseholdIncome)." .
+
+ex:derivedFrom
+    a owl:ObjectProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  ex:CensusSurvey ;
+    rdfs:label "derived from" ;
+    rdfs:comment "The census survey program and vintage that produced this observation." .
+
+ex:reportedIn
+    a owl:ObjectProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  ex:ReportDocument ;
+    rdfs:label "reported in" ;
+    rdfs:comment "The specific report document where this observation was published." .
+
+# ------------------------------------------------------------
+# Statistical Observation Datatype Properties
+# ------------------------------------------------------------
+
+ex:observationValue
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "observation value" ;
+    rdfs:comment "The numeric value of the statistic (e.g. 12.5 for a 12.5% poverty rate)." .
+
+ex:marginOfError
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "margin of error" ;
+    rdfs:comment "The margin of error for the estimate at the reported confidence level." .
+
+ex:referenceYear
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  xsd:gYear ;
+    rdfs:label "reference year" ;
+    rdfs:comment "The calendar year the statistic describes (e.g. '2023'^^xsd:gYear)." .
+
+ex:confidenceLevel
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  xsd:string ;
+    rdfs:label "confidence level" ;
+    rdfs:comment "The statistical confidence level for significance testing (e.g. '90 percent')." .
+
+ex:changeFromPriorYear
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "change from prior year" ;
+    rdfs:comment "The year-over-year change in the observation value (signed decimal)." .
+
+ex:changeDirection
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:StatisticalObservation ;
+    rdfs:range  xsd:string ;
+    rdfs:label "change direction" ;
+    rdfs:comment "Direction of year-over-year change. Values: 'increase'|'decrease'|'no_significant_change'." .
+
+# ------------------------------------------------------------
+# Population Group Datatype Properties
+# ------------------------------------------------------------
+
+ex:characteristicType
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:PopulationGroup ;
+    rdfs:range  xsd:string ;
+    rdfs:label "characteristic type" ;
+    rdfs:comment "The demographic dimension being described. Values: 'age'|'sex'|'race'|'ethnicity'|'nativity'|'poverty_status'|'insurance_status'|'household_type'." .
+
+ex:characteristicValue
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:PopulationGroup ;
+    rdfs:range  xsd:string ;
+    rdfs:label "characteristic value" ;
+    rdfs:comment "Human-readable label for the characteristic (e.g. '65 and over', 'Hispanic or Latino', 'Below poverty threshold', 'Foreign-born', 'Uninsured')." .
+
+ex:ombCode
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:PopulationGroup ;
+    rdfs:range  xsd:string ;
+    rdfs:label "OMB code" ;
+    rdfs:comment "OMB race or ethnicity classification code where applicable." .
+
+# ------------------------------------------------------------
+# Census Survey Datatype Properties
+# ------------------------------------------------------------
+
+ex:surveyName
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusSurvey ;
+    rdfs:range  xsd:string ;
+    rdfs:label "survey name" ;
+    rdfs:comment "Name of the census survey program (e.g. 'American Community Survey', 'Current Population Survey ASEC', 'Survey of Income and Program Participation', 'Decennial Census')." .
+
+ex:surveyVintage
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusSurvey ;
+    rdfs:range  xsd:gYear ;
+    rdfs:label "survey vintage" ;
+    rdfs:comment "The reference year of this survey edition (e.g. '2023'^^xsd:gYear)." .
+
+ex:surveyMethodology
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusSurvey ;
+    rdfs:range  xsd:string ;
+    rdfs:label "survey methodology" ;
+    rdfs:comment "Estimation methodology (e.g. '1-year estimates', '5-year estimates', 'cohort-component', 'full enumeration')." .
+
+# ------------------------------------------------------------
+# Statistical Measure Datatype Properties
+# ------------------------------------------------------------
+
+ex:measureName
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:StatisticalMeasure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "measure name" ;
+    rdfs:comment "Canonical camelCase name for the measure (e.g. 'povertyRate', 'medianHouseholdIncome', 'totalPopulation', 'healthInsuranceCoverageRate', 'apportionmentPopulation', 'netInternationalMigration', 'congressionalSeats')." .
+
+ex:measureUnit
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:StatisticalMeasure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "measure unit" ;
+    rdfs:comment "Unit of measurement. Values: 'percent', 'dollars', 'persons', 'years', 'seats'." .
+
+ex:measureType
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:StatisticalMeasure ;
+    rdfs:range  xsd:string ;
+    rdfs:label "measure type" ;
+    rdfs:comment "Statistical type of the measure. Values: 'rate'|'count'|'median'|'mean'|'ratio'|'projection'." .
+
+# ------------------------------------------------------------
+# Report Document Datatype Properties
+# ------------------------------------------------------------
+
+ex:seriesCode
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:ReportDocument ;
+    rdfs:range  xsd:string ;
+    rdfs:label "series code" ;
+    rdfs:comment "Census Bureau series and document code (e.g. 'c2020br-01', 'acsbr-022', 'p60-284', 'p25-1144', 'p70-212', 'ft895-24')." .
+
+ex:publicationDate
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:ReportDocument ;
+    rdfs:range  xsd:date ;
+    rdfs:label "publication date" ;
+    rdfs:comment "Date the report was published (xsd:date)." .
+
+# ------------------------------------------------------------
+# Metropolitan Statistical Area Datatype Properties
+# ------------------------------------------------------------
+
+ex:cbsaCode
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:MetropolitanStatisticalArea ;
+    rdfs:range  xsd:string ;
+    rdfs:label "CBSA code" ;
+    rdfs:comment "OMB Core-Based Statistical Area numeric code (e.g. '33460' for Minneapolis-St. Paul MSA)." .

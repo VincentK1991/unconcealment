@@ -1,69 +1,79 @@
-import type { RdfTriple } from "./extractEntities";
-import { namedGraphs } from "../config/manifest";
+import { ApplicationFailure } from "@temporalio/common";
+import type { ExtractionEntity, ExtractionRelationship } from "./extractEntities";
+import { PIPELINE_CONSTANTS } from "../constants/pipeline";
 
 export interface AssertToGraphInput {
-  datasetId: string;
-  documentIri: string;
-  triples: RdfTriple[];
+  datasetId:     string;
+  documentIri:   string;
+  indexingRunId: string;
+  entities:      ExtractionEntity[];
+  relationships: ExtractionRelationship[];
 }
+
+const ASSERT_TIMEOUT_MS = 60_000; // 60 s — Java should be fast once the payload is received
 
 /**
- * Activity: assert extracted RDF triples into the knowledge graph with RDF-star provenance.
- * Posts SPARQL UPDATE to POST /query/update?dataset={datasetId} on the Java backend.
+ * Activity: assert extracted entities and relationships into the knowledge graph.
+ * Posts the raw LLM extraction payload to POST /ingest/assertions on the Java backend.
  *
- * Each triple is annotated via RDF-star with:
- *   ex:sourceDocument   — the document IRI this triple was extracted from
- *   ex:extractedAt      — ISO timestamp of extraction
- *   ex:confidence       — GPT-4o extraction confidence [0-1]
- *   ex:extractionMethod — "llm:gpt-4o"
- *   ex:transactionTime  — when this triple was recorded in the graph
+ * Java is responsible for:
+ *   - Minting deterministic UUID entity IRIs (baseUri/entity/{uuid})
+ *   - Resolving ontology local names → full IRIs
+ *   - Building RDF-star SPARQL INSERT DATA via Apache Jena
+ *   - Writing triples + provenance to the dataset's abox:asserted named graph
  *
- * Triples are written to the dataset's abox:asserted named graph.
- * Both the base triple and its RDF-star annotation are inserted in a single UPDATE.
- *
- * Jena 5.x + Fuseki 5.5.0 support RDF-star natively:
- *   << subject predicate object >> annotation-predicate annotation-object
+ * Error classification:
+ *   4xx (except 429)  → NonRetryableGraphAssertionError (bad payload; retrying won't help)
+ *   429 / 5xx / network → retryable (backend overloaded or temporarily unavailable)
  */
 export async function assertToGraph(input: AssertToGraphInput): Promise<void> {
-  const graphs = namedGraphs(input.datasetId);
+  if (input.entities.length === 0) return;
+
   const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8080";
-  const endpoint = `${backendUrl}/query/update?dataset=${encodeURIComponent(input.datasetId)}`;
+  const endpoint = `${backendUrl}/ingest/assertions?dataset=${encodeURIComponent(input.datasetId)}`;
 
-  for (const triple of input.triples) {
-    const now = new Date().toISOString();
-    const objectTerm = triple.objectIsLiteral
-      ? `"${triple.object.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
-      : `<${triple.object}>`;
+  const payload = {
+    documentIri:      input.documentIri,
+    indexingRunId:    input.indexingRunId,
+    extractionMethod: PIPELINE_CONSTANTS.extraction.method,
+    extractedAt:      new Date().toISOString(),
+    entities:         input.entities,
+    relationships:    input.relationships,
+  };
 
-    const sparql = `
-PREFIX ex:  <https://kg.unconcealment.io/ontology/>
-PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ASSERT_TIMEOUT_MS);
 
-INSERT DATA {
-  GRAPH <${graphs.aboxAsserted}> {
-    <${triple.subject}> <${triple.predicate}> ${objectTerm} .
-
-    << <${triple.subject}> <${triple.predicate}> ${objectTerm} >>
-      ex:sourceDocument   <${input.documentIri}> ;
-      ex:extractedAt      "${now}"^^xsd:dateTime ;
-      ex:confidence       ${triple.confidence} ;
-      ex:extractionMethod "llm:gpt-4o" ;
-      ex:transactionTime  "${now}"^^xsd:dateTime .
-  }
-}
-`;
-
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/sparql-update" },
-      body: sparql,
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(payload),
+      signal:  controller.signal,
     });
-
-    if (!res.ok) {
-      const body = await res.text();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if ((err as any)?.name === "AbortError") {
       throw new Error(
-        `assertToGraph failed for dataset=${input.datasetId}: HTTP ${res.status} — ${body}`
+        `assertToGraph timed out after ${ASSERT_TIMEOUT_MS / 1000}s for dataset=${input.datasetId}`
       );
     }
+    throw new Error(`assertToGraph network error for dataset=${input.datasetId}: ${message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "(unreadable)");
+    const message = `assertToGraph failed for dataset=${input.datasetId}: HTTP ${res.status} — ${body}`;
+
+    // 4xx except rate-limit → payload is invalid; retrying won't help
+    if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+      throw ApplicationFailure.nonRetryable(message, "NonRetryableGraphAssertionError");
+    }
+
+    // 429 / 5xx → transient; Temporal will retry
+    throw new Error(message);
   }
 }

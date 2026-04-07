@@ -19,6 +19,8 @@ infra-up:
     @echo "Fuseki UI:    http://localhost:3030"
     @echo "Temporal UI:  http://localhost:8088"
     @echo "Postgres KG:  localhost:5433 (db=kg, user=admin)"
+    @echo "MinIO API:    http://localhost:9000"
+    @echo "MinIO UI:     http://localhost:9001"
 
 # Stop all Docker infrastructure
 infra-down:
@@ -56,14 +58,28 @@ reload dataset:
 indexing-install:
     cd {{INDEXING_DIR}} && npm install
 
-# Apply Prisma migrations to the KG Postgres database
-indexing-migrate:
+# One-command local migration workflow.
+# - Applies/creates migrations
+# - If drift blocks migrate dev, auto-resets DB and retries
+# Usage: just indexing-migrate
+# Usage: just indexing-migrate add_documents_and_chunk_fk
+indexing-migrate name="local_schema_update":
     cd {{INDEXING_DIR}} && DATABASE_URL="postgresql://admin:test1234@localhost:5433/kg" \
-        npx prisma migrate dev --name init
+        sh -c 'npx prisma migrate dev --name {{name}} || (echo "migrate dev failed; resetting local DB and retrying..." && npx prisma migrate reset --force --skip-seed && npx prisma migrate dev --name {{name}})'
+
+# Apply committed migrations only (recommended for CI/prod)
+indexing-migrate-deploy:
+    cd {{INDEXING_DIR}} && DATABASE_URL="postgresql://admin:test1234@localhost:5433/kg" \
+        npx prisma migrate deploy
 
 # Generate Prisma client after schema changes
 indexing-generate:
     cd {{INDEXING_DIR}} && npx prisma generate
+
+# Open Prisma Studio to inspect KG Postgres data
+indexing-studio:
+    cd {{INDEXING_DIR}} && DATABASE_URL="postgresql://admin:test1234@localhost:5433/kg" \
+        npx prisma studio
 
 # Start the Temporal indexing worker
 # Requires: OPENAI_API_KEY env var (set in .env or export before running)
@@ -72,6 +88,13 @@ worker:
         DATABASE_URL="postgresql://admin:test1234@localhost:5433/kg" \
         TEMPORAL_ADDRESS="localhost:7233" \
         BACKEND_URL="http://localhost:8080" \
+        MINIO_ENDPOINT="${MINIO_ENDPOINT:-localhost}" \
+        MINIO_PORT="${MINIO_PORT:-9000}" \
+        MINIO_USE_SSL="${MINIO_USE_SSL:-false}" \
+        MINIO_ROOT_USER="${MINIO_ROOT_USER:-admin}" \
+        MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-test1234}" \
+        MINIO_BUCKET="${MINIO_BUCKET:-documents}" \
+        MINIO_OBJECT_PREFIX="${MINIO_OBJECT_PREFIX:-raw}" \
         MANIFEST_PATH="{{justfile_directory()}}/ontology/manifest.yaml" \
         npx ts-node src/worker.ts
 
@@ -85,9 +108,52 @@ trigger dataset="economic-census":
         DATABASE_URL="postgresql://admin:test1234@localhost:5433/kg" \
         TEMPORAL_ADDRESS="localhost:7233" \
         BACKEND_URL="http://localhost:8080" \
+        MINIO_ENDPOINT="${MINIO_ENDPOINT:-localhost}" \
+        MINIO_PORT="${MINIO_PORT:-9000}" \
+        MINIO_USE_SSL="${MINIO_USE_SSL:-false}" \
+        MINIO_ROOT_USER="${MINIO_ROOT_USER:-admin}" \
+        MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-test1234}" \
+        MINIO_BUCKET="${MINIO_BUCKET:-documents}" \
+        MINIO_OBJECT_PREFIX="${MINIO_OBJECT_PREFIX:-raw}" \
         MANIFEST_PATH="{{justfile_directory()}}/ontology/manifest.yaml" \
         DATASET_ID="{{dataset}}" \
         npx ts-node src/scripts/triggerDocument.ts
+
+# Index one PDF or all PDFs in a directory with bounded Temporal in-flight workflows
+# Usage: just index-pdfs data/economic-census
+# Usage: just index-pdfs data/public-health/nhsr144-508.pdf public-health 3 1
+index-pdfs input_path dataset="" max_in_flight="2" limit="":
+    cd {{INDEXING_DIR}} && \
+        DATABASE_URL="postgresql://admin:test1234@localhost:5433/kg" \
+        TEMPORAL_ADDRESS="localhost:7233" \
+        BACKEND_URL="http://localhost:8080" \
+        MINIO_ENDPOINT="${MINIO_ENDPOINT:-localhost}" \
+        MINIO_PORT="${MINIO_PORT:-9000}" \
+        MINIO_USE_SSL="${MINIO_USE_SSL:-false}" \
+        MINIO_ROOT_USER="${MINIO_ROOT_USER:-admin}" \
+        MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-test1234}" \
+        MINIO_BUCKET="${MINIO_BUCKET:-documents}" \
+        MINIO_OBJECT_PREFIX="${MINIO_OBJECT_PREFIX:-raw}" \
+        MANIFEST_PATH="{{justfile_directory()}}/ontology/manifest.yaml" \
+        sh -c 'cmd="npx ts-node src/scripts/indexPdfs.ts \"{{justfile_directory()}}/{{input_path}}\" --max-in-flight \"{{max_in_flight}}\""; if [ -n "{{dataset}}" ]; then cmd="$cmd --dataset \"{{dataset}}\""; fi; if [ -n "{{limit}}" ]; then cmd="$cmd --limit \"{{limit}}\""; fi; eval "$cmd"'
+
+# Remove one document from graph + Postgres + MinIO using the cleanup workflow
+# Usage: just cleanup economic-census
+cleanup dataset="economic-census":
+    cd {{INDEXING_DIR}} && \
+        DATABASE_URL="postgresql://admin:test1234@localhost:5433/kg" \
+        TEMPORAL_ADDRESS="localhost:7233" \
+        BACKEND_URL="http://localhost:8080" \
+        MINIO_ENDPOINT="${MINIO_ENDPOINT:-localhost}" \
+        MINIO_PORT="${MINIO_PORT:-9000}" \
+        MINIO_USE_SSL="${MINIO_USE_SSL:-false}" \
+        MINIO_ROOT_USER="${MINIO_ROOT_USER:-admin}" \
+        MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-test1234}" \
+        MINIO_BUCKET="${MINIO_BUCKET:-documents}" \
+        MINIO_OBJECT_PREFIX="${MINIO_OBJECT_PREFIX:-raw}" \
+        MANIFEST_PATH="{{justfile_directory()}}/ontology/manifest.yaml" \
+        DATASET_ID="{{dataset}}" \
+        npx ts-node src/scripts/cleanupDocument.ts
 
 # ─── Web UI ───────────────────────────────────────────────────────────────────
 

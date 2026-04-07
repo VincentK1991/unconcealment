@@ -26,9 +26,12 @@ async function probe(): Promise<void> {
     console.log(`\nSuccess — top 5 counties by population:\n`);
     console.table(
       rows.map((r) => ({
-        geo_id: r.geo_id,
-        total_pop: r.total_pop.toLocaleString(),
-        median_income: `$${r.median_income?.toLocaleString() ?? "N/A"}`,
+        geo_id: String(r.geo_id),
+        total_pop: Number(r.total_pop).toLocaleString(),
+        median_income:
+          r.median_income == null
+            ? "N/A"
+            : `$${Number(r.median_income).toLocaleString()}`,
       }))
     );
     console.log(

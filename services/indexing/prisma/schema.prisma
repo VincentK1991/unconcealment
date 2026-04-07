@@ -18,6 +18,8 @@ datasource db {
 // One source document produces many chunks.
 model DocumentChunk {
   id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  documentId String   @db.Uuid
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
   // IRI of the source document in the RDF graph (used to link back from provenance)
   documentIri String
   // Which dataset this chunk belongs to (matches manifest.yaml dataset id)
@@ -32,7 +34,29 @@ model DocumentChunk {
   sourceUrl  String
   createdAt  DateTime @default(now())
 
+  @@index([documentId])
   @@index([documentIri])
   @@index([datasetId])
   @@map("document_chunks")
+}
+
+model Document {
+  id               String          @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  documentIri      String          @unique
+  datasetId        String
+  sourceUrl        String
+  content          String
+  contentHash      String
+  mimeType         String?
+  ocrEngine        String?
+  storageBucket    String?
+  storageObjectKey String?
+  storagePath      String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  chunks           DocumentChunk[]
+
+  @@index([datasetId])
+  @@index([sourceUrl])
+  @@map("documents")
 }

@@ -59,6 +59,13 @@
             <version>${snakeyaml.version}</version>
         </dependency>
 
+        <!-- MinIO client for document fetch/stream endpoints -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.12</version>
+        </dependency>
+
         <!-- Micrometer Prometheus (for /health/metrics) -->
         <dependency>
             <groupId>io.micrometer</groupId>

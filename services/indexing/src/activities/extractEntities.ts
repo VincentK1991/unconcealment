@@ -1,52 +1,68 @@
 import OpenAI from "openai";
+import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
+import { ApplicationFailure } from "@temporalio/common";
 import { getDataset } from "../config/manifest";
+import { getObjectStorageClient, streamToBuffer } from "../config/objectStorage";
+import {
+  buildExtractionSystemPrompt,
+  PIPELINE_CONSTANTS,
+  SPARQL_ONTOLOGY_CONTEXT_QUERY,
+} from "../constants/pipeline";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const RdfTripleSchema = z.object({
-  subject:        z.string().describe("Full IRI of the subject entity"),
-  predicate:      z.string().describe("Full IRI of the predicate (from the ontology)"),
-  object:         z.string().describe("Full IRI or literal value of the object"),
-  objectIsLiteral:z.boolean().describe("True if object is a literal value, false if it is an IRI"),
-  confidence:     z.number().min(0).max(1).describe("Extraction confidence [0-1]"),
+const EntitySchema = z.object({
+  label: z.string().describe("Human-readable entity label (e.g. 'Apple Inc.')"),
+  type:  z.string().describe("Ontology class local name (e.g. 'Organization')"),
+});
+
+const RelationshipSchema = z.object({
+  subjectId:       z.number().int().describe("0-based index of the subject entity in the entities array"),
+  predicate:       z.string().describe("Ontology property local name (e.g. 'hasEmployer')"),
+  objectId:        z.number().int().nullable().describe("0-based index of the object entity; null if objectIsLiteral is true"),
+  objectLiteral:   z.string().nullable().describe("Literal value (date, number, text); null if objectIsLiteral is false"),
+  objectIsLiteral: z.boolean().describe("True if object is a literal; false if object is a named entity"),
+  confidence:      z.number().min(0).max(1).describe("Extraction confidence [0-1]"),
 });
 
 const ExtractionResultSchema = z.object({
-  triples: z.array(RdfTripleSchema),
+  entities:      z.array(EntitySchema),
+  relationships: z.array(RelationshipSchema),
 });
 
-export type RdfTriple = z.infer<typeof RdfTripleSchema>;
+export type ExtractionEntity = z.infer<typeof EntitySchema>;
+export type ExtractionRelationship = z.infer<typeof RelationshipSchema>;
 
 export interface ExtractEntitiesInput {
   datasetId: string;
   documentIri: string;
-  text: string;
+  textBucket: string;
+  textObjectKey: string;
   chunkIds: string[];
 }
 
 export interface ExtractEntitiesOutput {
-  triples: RdfTriple[];
+  entities:      ExtractionEntity[];
+  relationships: ExtractionRelationship[];
 }
 
 interface OntologyBinding {
-  class:   { value: string };
-  label:   { value: string };
-  comment?: { value: string };
+  term:      { value: string };
+  termType:  { value: string };
+  label:     { value: string };
+  comment?:  { value: string };
 }
 
 /**
- * Activity: extract RDF triples from document text using GPT-4o.
+ * Activity: extract entities and relationships from document text using structured output.
  *
- * Ontology context is fetched live from the graph via POST /query/tbox.
- * The ontology class list is serialized to a compact text block and prepended
- * to the GPT-4o system prompt, coupling extraction quality to ontology maturity.
+ * Ontology context (classes + properties) is fetched live from the graph via POST /query/tbox.
+ * The LLM outputs entity labels and ontology local names — no IRIs. IRI minting is delegated
+ * to the Java backend, which has access to Apache Jena for proper RDF/SPARQL generation.
  *
- * If the ontology fetch fails (e.g. backend not yet ready), falls back to
- * dataset label as a minimal placeholder so the activity does not crash.
- *
- * Output is constrained by a Zod schema; if GPT-4o returns malformed JSON,
- * we retry once with the parse error injected into the follow-up prompt.
+ * Output shape: { entities: [{ label, type }], relationships: [{ subjectId, predicate, objectId, objectLiteral, objectIsLiteral, confidence }] }
+ * Entities are referenced by their 0-based index in the entities array.
  */
 export async function extractEntities(
   input: ExtractEntitiesInput
@@ -54,63 +70,70 @@ export async function extractEntities(
   const dataset = getDataset(input.datasetId);
   const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8080";
 
-  const ontologyContext = await fetchOntologyContext(backendUrl, input.datasetId, dataset.label);
+  const storageClient = getObjectStorageClient();
+  const textStream = await storageClient.getObject(input.textBucket, input.textObjectKey);
+  const text = (await streamToBuffer(textStream)).toString("utf8");
 
-  const systemPrompt = `You are a knowledge graph extraction engine.
-Extract RDF triples from the provided text using the ontology below.
-Return ONLY triples that are explicitly supported by the text — do not infer.
-Use full IRIs for subjects, predicates, and object IRIs.
-For literals, use the raw value string.
-For subject IRIs, use the pattern: ${backendUrl}/entity/{uuid-or-slug}
+  const { classes, properties } = await fetchOntologyContext(backendUrl, input.datasetId, dataset.label);
+  const systemPrompt = buildExtractionSystemPrompt(classes, properties);
 
-Ontology classes available:
-${ontologyContext}
+  try {
+    return await callStructuredExtraction(systemPrompt, text);
+  } catch (firstError) {
+    // Only apply the "retry with error context" prompt for schema/validation failures.
+    // Transient errors (rate limits, network) should be re-thrown so Temporal retries cleanly.
+    if (!isValidationError(firstError)) {
+      throw firstError;
+    }
 
-Respond with a JSON object: { "triples": [ { "subject", "predicate", "object", "objectIsLiteral", "confidence" } ] }`;
-
-  const rawContent = await callGpt4o(systemPrompt, input.text);
-
-  // First parse attempt
-  const firstParse = ExtractionResultSchema.safeParse(JSON.parse(rawContent ?? "{}"));
-  if (firstParse.success) {
-    return firstParse.data;
+    const reason = firstError instanceof Error ? firstError.message : String(firstError);
+    try {
+      return await callStructuredExtraction(
+        systemPrompt,
+        `The previous extraction returned invalid output: ${reason}\n\nExtract entities and relationships from:\n\n${text}`
+      );
+    } catch (retryError) {
+      const retryMessage =
+        retryError instanceof Error ? retryError.message : String(retryError);
+      throw ApplicationFailure.nonRetryable(
+        `Extraction schema validation failed after schema-context retry: ${retryMessage}`,
+        "NonRetryableExtractionSchemaError"
+      );
+    }
   }
+}
 
-  // Retry: inject the parse error so GPT-4o can self-correct
-  const retryContent = await callGpt4o(
-    systemPrompt,
-    `Your previous response failed schema validation:\n${firstParse.error.message}\n\nPlease re-extract from the original text:\n\n${input.text}`
+/**
+ * Returns true when the error is a local schema/validation problem (bad model output)
+ * rather than a transient API error. Only validation errors trigger the prompt-with-context retry.
+ */
+function isValidationError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("no parsed") ||
+    msg.includes("invalid subjectid") ||
+    msg.includes("invalid objectid") ||
+    msg.includes("schema") ||
+    msg.includes("parse error")
   );
-
-  const retryParse = ExtractionResultSchema.safeParse(JSON.parse(retryContent ?? "{}"));
-  if (!retryParse.success) {
-    throw new Error(`GPT-4o returned malformed extraction result after retry: ${retryParse.error.message}`);
-  }
-
-  return retryParse.data;
 }
 
 async function fetchOntologyContext(
   backendUrl: string,
   datasetId: string,
   datasetLabel: string
-): Promise<string> {
-  const sparql = `
-    PREFIX owl:  <http://www.w3.org/2002/07/owl#>
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    SELECT ?class ?label ?comment WHERE {
-      ?class a owl:Class ;
-             rdfs:label ?label .
-      OPTIONAL { ?class rdfs:comment ?comment }
-    }
-    ORDER BY ?label
-  `;
+): Promise<{ classes: string; properties: string }> {
+  const fallback = {
+    classes:    `  (no ontology classes found — dataset: ${datasetLabel})`,
+    properties: `  (no ontology properties found — dataset: ${datasetLabel})`,
+  };
 
   try {
     const res = await fetch(`${backendUrl}/query/tbox?dataset=${encodeURIComponent(datasetId)}`, {
       method: "POST",
       headers: { "Content-Type": "application/sparql-query" },
-      body: sparql,
+      body: SPARQL_ONTOLOGY_CONTEXT_QUERY,
     });
 
     if (!res.ok) {
@@ -123,33 +146,68 @@ async function fetchOntologyContext(
 
     const bindings = data.results?.bindings ?? [];
     if (bindings.length === 0) {
-      return `Dataset: ${datasetLabel} (no ontology classes found in graph)`;
+      return fallback;
     }
 
-    return bindings
-      .map((row) => {
-        const comment = row.comment ? ` — ${row.comment.value}` : "";
-        return `  ${row.label.value} (${row.class.value})${comment}`;
-      })
-      .join("\n");
+    const classLines: string[] = [];
+    const propertyLines: string[] = [];
+
+    for (const row of bindings) {
+      const comment = row.comment ? ` — ${row.comment.value}` : "";
+      // Extract local name from full IRI (after last # or /)
+      const localName = row.term.value.replace(/.*[#/]/, "");
+      const line = `  ${localName} (${row.label.value})${comment}`;
+      if (row.termType.value === "class") {
+        classLines.push(line);
+      } else {
+        propertyLines.push(line);
+      }
+    }
+
+    return {
+      classes:    classLines.length > 0 ? classLines.join("\n") : fallback.classes,
+      properties: propertyLines.length > 0 ? propertyLines.join("\n") : fallback.properties,
+    };
   } catch (err) {
-    // Non-fatal: fall back to a minimal placeholder so extraction can still proceed
     console.warn(
       `[extractEntities] Could not fetch ontology for dataset '${datasetId}': ${err}. Using placeholder.`
     );
-    return `Dataset: ${datasetLabel} (ontology unavailable — using fallback context)`;
+    return fallback;
   }
 }
 
-async function callGpt4o(systemPrompt: string, userContent: string): Promise<string> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { role: "system",  content: systemPrompt },
-      { role: "user",    content: `Extract RDF triples from the following text:\n\n${userContent}` },
+async function callStructuredExtraction(
+  systemPrompt: string,
+  userContent: string
+): Promise<ExtractEntitiesOutput> {
+  const response = await openai.responses.parse({
+    model: PIPELINE_CONSTANTS.models.extraction,
+    input: [
+      { role: "system", content: systemPrompt },
+      { role: "user",   content: `Extract entities and relationships from the following text:\n\n${userContent}` },
     ],
-    response_format: { type: "json_object" },
-    temperature: 0,
+    text: {
+      format: zodTextFormat(ExtractionResultSchema, "extraction_result"),
+    },
   });
-  return response.choices[0].message.content ?? "{}";
+
+  const parsed = response.output_parsed;
+  if (!parsed) {
+    throw new Error("No parsed extraction payload returned by model");
+  }
+
+  // Validate that all entity indices in relationships are in range
+  const entityCount = parsed.entities.length;
+  for (const rel of parsed.relationships) {
+    if (rel.subjectId < 0 || rel.subjectId >= entityCount) {
+      throw new Error(`Invalid subjectId ${rel.subjectId} (entities length: ${entityCount})`);
+    }
+    if (!rel.objectIsLiteral) {
+      if (rel.objectId === null || rel.objectId === undefined || rel.objectId < 0 || rel.objectId >= entityCount) {
+        throw new Error(`Invalid objectId ${rel.objectId} (entities length: ${entityCount})`);
+      }
+    }
+  }
+
+  return parsed;
 }

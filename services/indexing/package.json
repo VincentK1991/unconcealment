@@ -8,6 +8,7 @@
   },
   "scripts": {
     "worker": "ts-node src/worker.ts",
+    "index:pdfs": "ts-node src/scripts/indexPdfs.ts",
     "probe:bigquery": "ts-node src/bigquery/probe.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
@@ -21,6 +22,7 @@
     "@temporalio/client": "^1.11.4",
     "@temporalio/worker": "^1.11.4",
     "@temporalio/workflow": "^1.11.4",
+    "minio": "^8.0.7",
     "openai": "^4.67.1",
     "yaml": "^2.6.0",
     "zod": "^3.23.8"

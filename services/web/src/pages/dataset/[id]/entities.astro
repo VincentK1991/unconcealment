@@ -11,6 +11,7 @@ const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
 interface EntityBinding {
   entity: { value: string };
   label?: { value: string };
+  slug?:  { value: string };
   type?:  { value: string };
 }
 
@@ -20,10 +21,12 @@ const sparql = `
   PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
   PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
   PREFIX owl:  <http://www.w3.org/2002/07/owl#>
-  SELECT DISTINCT ?entity ?label ?type WHERE {
+  PREFIX ex:   <https://kg.unconcealment.io/ontology/>
+  SELECT DISTINCT ?entity ?label ?slug ?type WHERE {
     GRAPH <${aboxAsserted}> {
       ?entity a ?type .
       OPTIONAL { ?entity rdfs:label ?label }
+      OPTIONAL { ?entity ex:slug ?slug }
       FILTER(?type != owl:NamedIndividual)
     }
   }
@@ -51,7 +54,7 @@ try {
 }
 
 const shortLabel = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
-const entityUuid  = (iri: string) => iri.split("/").pop() ?? iri;
+const entityIdFromIri = (iri: string) => iri.split("/").pop() ?? iri;
 ---
 
 <!doctype html>
@@ -99,12 +102,12 @@ const entityUuid  = (iri: string) => iri.split("/").pop() ?? iri;
         </thead>
         <tbody>
           {entities.map(row => {
-            const uuid  = entityUuid(row.entity.value);
-            const label = row.label?.value ?? shortLabel(row.entity.value);
+            const entityId = entityIdFromIri(row.entity.value);
+            const label = row.label?.value ?? row.slug?.value ?? shortLabel(row.entity.value);
             const type  = row.type ? shortLabel(row.type.value) : "—";
             return (
               <tr>
-                <td><a class="el" href={`/entity/${uuid}?dataset=${datasetId}`}>{label}</a></td>
+                <td><a class="el" href={`/entity/${encodeURIComponent(entityId)}?dataset=${encodeURIComponent(datasetId)}`}>{label}</a></td>
                 <td class="type">{type}</td>
                 <td class="iri">{row.entity.value}</td>
               </tr>

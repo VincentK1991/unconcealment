@@ -21,14 +21,17 @@ async function run(): Promise<void> {
     connection,
     namespace: process.env.TEMPORAL_NAMESPACE ?? "default",
     taskQueue,
-    workflowsPath: require.resolve("./workflows/indexDocument"),
+    maxConcurrentWorkflowTaskExecutions: 10,
+    maxConcurrentActivityTaskExecutions: 8,
+    maxConcurrentLocalActivityExecutions: 8,
+    workflowsPath: require.resolve("./workflows"),
     activities,
   });
 
   await worker.run();
 }
 
-run().catch((err) => {
-  console.error("Worker failed:", err);
+run().catch((error) => {
+  console.error("Worker failed:", error);
   process.exit(1);
 });

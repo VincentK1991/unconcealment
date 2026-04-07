@@ -1,0 +1,86 @@
+---
+export const prerender = false;
+
+const { key: documentKey } = Astro.params;
+if (!documentKey) return Astro.redirect("/");
+const datasetId = Astro.url.searchParams.get("dataset") ?? "economic-census";
+
+const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
+const rawUrl = `${BACKEND_URL}/document/raw?dataset=${encodeURIComponent(datasetId)}&documentKey=${encodeURIComponent(documentKey)}`;
+
+interface ResolvedPayload {
+  objectKey?: string;
+  contentType?: string;
+  error?: string;
+}
+
+let resolved: ResolvedPayload | null = null;
+let resolveError: string | null = null;
+
+try {
+  const res = await fetch(`${BACKEND_URL}/document/resolve?dataset=${encodeURIComponent(datasetId)}&documentKey=${encodeURIComponent(documentKey)}`);
+  if (res.ok) {
+    resolved = await res.json() as ResolvedPayload;
+  } else {
+    const body = await res.text();
+    resolveError = `Backend returned ${res.status}: ${body}`;
+  }
+} catch {
+  resolveError = "Backend unavailable";
+}
+
+const isPdf = (resolved?.contentType ?? "").toLowerCase().includes("pdf") || (resolved?.objectKey ?? "").toLowerCase().endsWith(".pdf");
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document {documentKey} — unconcealment</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 1080px; margin: 1.25rem auto; padding: 0 1rem; }
+      h1 { font-size: 1.25rem; margin: 0.4rem 0 0.75rem; word-break: break-all; }
+      .meta { background: #f8f8f8; border: 1px solid #e5e5e5; border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.8rem; font-size: 0.88rem; }
+      .meta div { margin: 0.2rem 0; }
+      .label { color: #666; font-weight: 600; margin-right: 0.35rem; }
+      .error { color: #b00020; background: #fff0f2; border: 1px solid #f4c2cc; border-radius: 8px; padding: 0.65rem 0.8rem; }
+      .viewer { border: 1px solid #ddd; border-radius: 8px; overflow: hidden; height: calc(100vh - 220px); min-height: 500px; background: #fff; }
+      .viewer iframe { width: 100%; height: 100%; border: 0; }
+      .actions { margin-bottom: 0.8rem; }
+      .actions a { color: #1a6bb5; text-decoration: none; }
+      .actions a:hover { text-decoration: underline; }
+      code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.82rem; }
+    </style>
+  </head>
+  <body>
+    <div class="actions">
+      <a href={`/dataset/${encodeURIComponent(datasetId)}/documents`}>← Back to documents</a>
+    </div>
+    <h1>Document {documentKey}</h1>
+
+    <div class="meta">
+      <div><span class="label">Dataset:</span><code>{datasetId}</code></div>
+      <div><span class="label">Document key:</span><code>{documentKey}</code></div>
+      <div><span class="label">Object key:</span><code>{resolved?.objectKey ?? "—"}</code></div>
+      <div><span class="label">Content type:</span><code>{resolved?.contentType ?? "—"}</code></div>
+    </div>
+
+    {resolveError && <div class="error">{resolveError}</div>}
+    {!resolveError && !resolved && <div class="error">Unable to resolve document in MinIO.</div>}
+
+    {!resolveError && resolved && (
+      isPdf ? (
+        <div class="viewer">
+          <iframe src={rawUrl} title={`PDF document ${documentKey}`}></iframe>
+        </div>
+      ) : (
+        <div>
+          <p>This document is not a PDF.</p>
+          <p><a href={rawUrl} target="_blank" rel="noreferrer">Open raw file</a></p>
+        </div>
+      )
+    )}
+  </body>
+</html>
+

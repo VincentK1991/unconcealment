@@ -1,13 +1,14 @@
 ---
 interface Props {
   datasetId: string;
-  current: "overview" | "entities" | "ontology" | "rules";
+  current: "overview" | "entities" | "documents" | "ontology" | "rules";
 }
 const { datasetId, current } = Astro.props;
 
 const tabs = [
   { id: "overview",  label: "Overview",       href: `/dataset/${datasetId}` },
   { id: "entities",  label: "Entities",        href: `/dataset/${datasetId}/entities` },
+  { id: "documents", label: "Documents",       href: `/dataset/${datasetId}/documents` },
   { id: "ontology",  label: "Ontology",        href: `/dataset/${datasetId}/ontology` },
   { id: "rules",     label: "Rules",           href: `/dataset/${datasetId}/rules` },
 ];

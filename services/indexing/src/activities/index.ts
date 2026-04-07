@@ -1,3 +1,10 @@
 export { embedAndStore } from "./embedAndStore";
 export { extractEntities } from "./extractEntities";
 export { assertToGraph } from "./assertToGraph";
+export { resolveDocumentContent } from "./resolveDocumentContent";
+export { uploadSourceDocument } from "./uploadSourceDocument";
+export { deleteSourceDocument } from "./deleteSourceDocument";
+export { deleteGraphAssertions } from "./deleteGraphAssertions";
+export { restoreGraphAssertions } from "./restoreGraphAssertions";
+export { deleteDocumentEmbeddings } from "./deleteDocumentEmbeddings";
+export { restoreDocumentEmbeddings } from "./restoreDocumentEmbeddings";

@@ -1,0 +1,353 @@
+package com.unconcealment.backend.controller;
+
+import com.unconcealment.backend.model.DatasetManifest;
+import com.unconcealment.backend.model.DatasetManifest.DatasetConfig;
+import com.unconcealment.backend.model.DatasetManifest.NamedGraphs;
+import org.apache.jena.query.Query;
+import org.apache.jena.query.QueryExecution;
+import org.apache.jena.query.QueryFactory;
+import org.apache.jena.query.QuerySolution;
+import org.apache.jena.query.ResultSet;
+import org.apache.jena.rdfconnection.RDFConnection;
+import org.apache.jena.update.UpdateFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Ingest gateway: accepts LLM extraction payloads and writes RDF triples to the graph.
+ *
+ * The TypeScript indexing pipeline sends lightweight semantic output (entity labels,
+ * ontology local names, integer indices) and this controller handles:
+ *   - Deterministic UUID minting from dataset + slugified label for canonical entity IRIs
+ *   - Resolving ontology local names → full IRIs via TBox SPARQL lookup
+ *   - Building and executing RDF-star SPARQL INSERT DATA via Apache Jena
+ *
+ * Routes:
+ *   POST /ingest/assertions?dataset={id}  → assert extracted entities + relationships
+ */
+@RestController
+@RequestMapping("/ingest")
+public class IngestController {
+
+    private static final Logger log = LoggerFactory.getLogger(IngestController.class);
+
+    private static final String ONTOLOGY_NS = "https://kg.unconcealment.io/ontology/";
+
+    private final DatasetManifest manifest;
+    private final Map<String, RDFConnection> datasetConnections;
+
+    public IngestController(DatasetManifest manifest,
+                            Map<String, RDFConnection> datasetConnections) {
+        this.manifest = manifest;
+        this.datasetConnections = datasetConnections;
+    }
+
+    // -------------------------------------------------------------------------
+    // DTOs
+    // -------------------------------------------------------------------------
+
+    public static class EntityDto {
+        public String label;
+        public String type;
+    }
+
+    public static class RelationshipDto {
+        public int subjectId;
+        public String predicate;
+        public Integer objectId;       // null when objectIsLiteral is true
+        public String objectLiteral;   // null when objectIsLiteral is false
+        public boolean objectIsLiteral;
+        public double confidence;
+    }
+
+    public static class AssertionRequest {
+        public String documentIri;
+        public String indexingRunId;
+        public String extractionMethod;
+        public String extractedAt;
+        public List<EntityDto> entities;
+        public List<RelationshipDto> relationships;
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /ingest/assertions
+    // -------------------------------------------------------------------------
+
+    /**
+     * Accepts the LLM extraction payload and writes entity type triples + relationship
+     * triples (with RDF-star provenance) into the dataset's abox:asserted named graph.
+     *
+     * Each relationship triple is annotated with:
+     *   ex:sourceDocument, ex:extractedAt, ex:confidence, ex:extractionMethod,
+     *   ex:indexingRun, ex:transactionTime
+     *
+     * Entity IRIs are minted deterministically: {baseUri}/entity/{uuid}
+     * A slug is still asserted as metadata (ex:slug) for human-readable aliases.
+     * Ontology IRIs are resolved by local name lookup against the TBox named graph.
+     */
+    @PostMapping("/assertions")
+    public ResponseEntity<String> assertEntities(
+            @RequestParam String dataset,
+            @RequestBody AssertionRequest request) {
+
+        DatasetConfig ds = resolveDataset(dataset);
+        if (ds == null) return datasetNotFound(dataset);
+
+        RDFConnection conn = datasetConnections.get(dataset);
+        if (conn == null) return datasetNotFound(dataset);
+
+        if (request.entities == null || request.entities.isEmpty()) {
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"status\":\"ok\",\"triplesAsserted\":0}");
+        }
+
+        // Resolve ontology local names → full IRIs from the loaded TBox
+        Map<String, String> localNameToIri = buildLocalNameMap(conn, ds.namedGraphs().tbox());
+
+        // Mint canonical entity IRIs: {baseUri}/entity/{uuid}
+        String[] entityIris = new String[request.entities.size()];
+        for (int i = 0; i < request.entities.size(); i++) {
+            EntityDto entity = request.entities.get(i);
+            String canonicalEntityId = canonicalEntityId(dataset, entity);
+            entityIris[i] = manifest.mintIri(ds, "aboxSegment", canonicalEntityId);
+        }
+
+        String now = Instant.now().toString();
+        NamedGraphs graphs = ds.namedGraphs();
+
+        StringBuilder triples = new StringBuilder();
+
+        // --- Entity type + slug assertions ---
+        for (int i = 0; i < request.entities.size(); i++) {
+            EntityDto entity = request.entities.get(i);
+            String entityIri = entityIris[i];
+            String slug = slugify(entity.label);
+
+            // ex:slug — used by the web server's slug → IRI lookup
+            triples.append("    <").append(entityIri).append("> ")
+                   .append("<").append(ONTOLOGY_NS).append("slug> ")
+                   .append("\"").append(escapeSparqlLiteral(slug)).append("\" .\n");
+
+            String typeIri = resolveOntologyIri(entity.type, localNameToIri);
+            if (!localNameToIri.containsKey(entity.type)) {
+                log.info("[{}] Unknown entity type local name '{}' for entity '{}' — minting IRI <{}> (open-world)",
+                        dataset, entity.type, entity.label, typeIri);
+            }
+            triples.append("    <").append(entityIri).append("> ")
+                   .append("<http://www.w3.org/1999/02/22-rdf-syntax-ns#type> ")
+                   .append("<").append(typeIri).append("> .\n");
+        }
+
+        // --- Relationship triples with RDF-star provenance ---
+        int triplesAsserted = 0;
+        for (RelationshipDto rel : request.relationships) {
+            if (rel.subjectId < 0 || rel.subjectId >= entityIris.length) {
+                log.warn("[{}] Skipping relationship with out-of-range subjectId={}", dataset, rel.subjectId);
+                continue;
+            }
+
+            String subjectIri = entityIris[rel.subjectId];
+            String predicateIri = resolveOntologyIri(rel.predicate, localNameToIri);
+            if (!localNameToIri.containsKey(rel.predicate)) {
+                log.info("[{}] Unknown predicate local name '{}' — minting IRI <{}> (open-world)", dataset, rel.predicate, predicateIri);
+            }
+
+            String objectTerm;
+            if (rel.objectIsLiteral) {
+                objectTerm = "\"" + escapeSparqlLiteral(rel.objectLiteral) + "\"";
+            } else {
+                if (rel.objectId == null || rel.objectId < 0 || rel.objectId >= entityIris.length) {
+                    log.warn("[{}] Skipping relationship with out-of-range objectId={}", dataset, rel.objectId);
+                    continue;
+                }
+                objectTerm = "<" + entityIris[rel.objectId] + ">";
+            }
+
+            String s = "<" + subjectIri + ">";
+            String p = "<" + predicateIri + ">";
+            String o = objectTerm;
+
+            // Base triple
+            triples.append("    ").append(s).append(" ").append(p).append(" ").append(o).append(" .\n");
+
+            // RDF-star annotation
+            triples.append("    << ").append(s).append(" ").append(p).append(" ").append(o).append(" >>\n")
+                   .append("      <").append(ONTOLOGY_NS).append("sourceDocument>   <").append(request.documentIri).append("> ;\n")
+                   .append("      <").append(ONTOLOGY_NS).append("extractedAt>      \"").append(escapeSparqlLiteral(request.extractedAt)).append("\"^^<http://www.w3.org/2001/XMLSchema#dateTime> ;\n")
+                   .append("      <").append(ONTOLOGY_NS).append("confidence>       ").append(rel.confidence).append(" ;\n")
+                   .append("      <").append(ONTOLOGY_NS).append("extractionMethod> \"").append(escapeSparqlLiteral(request.extractionMethod)).append("\" ;\n")
+                   .append("      <").append(ONTOLOGY_NS).append("indexingRun>      \"").append(escapeSparqlLiteral(request.indexingRunId)).append("\" ;\n")
+                   .append("      <").append(ONTOLOGY_NS).append("transactionTime>  \"").append(escapeSparqlLiteral(now)).append("\"^^<http://www.w3.org/2001/XMLSchema#dateTime> .\n\n");
+
+            triplesAsserted++;
+        }
+
+        if (triplesAsserted == 0 && triples.isEmpty()) {
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"status\":\"ok\",\"triplesAsserted\":0}");
+        }
+
+        String sparql = """
+                PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+                PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+
+                INSERT DATA {
+                  GRAPH <%s> {
+                %s  }
+                }
+                """.formatted(graphs.aboxAsserted(), triples);
+
+        try {
+            conn.update(UpdateFactory.create(sparql));
+            log.info("[{}] Asserted {} relationship triple(s) + {} entity type(s) from document <{}>",
+                    dataset, triplesAsserted, request.entities.size(), request.documentIri);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"status\":\"ok\",\"triplesAsserted\":" + triplesAsserted + "}");
+        } catch (Exception e) {
+            log.error("[{}] SPARQL INSERT failed: {}", dataset, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"error\":" + jsonString(e.getMessage()) + "}");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Queries the TBox named graph to build a map of ontology local name → full IRI.
+     * Covers owl:Class, owl:ObjectProperty, and owl:DatatypeProperty.
+     * Falls back to an empty map if the query fails (non-fatal).
+     */
+    private Map<String, String> buildLocalNameMap(RDFConnection conn, String tboxGraphUri) {
+        Map<String, String> map = new HashMap<>();
+        String sparql = """
+                PREFIX owl: <http://www.w3.org/2002/07/owl#>
+                SELECT ?iri WHERE {
+                  GRAPH <%s> {
+                    { ?iri a owl:Class }
+                    UNION { ?iri a owl:ObjectProperty }
+                    UNION { ?iri a owl:DatatypeProperty }
+                    FILTER(isIRI(?iri))
+                  }
+                }
+                """.formatted(tboxGraphUri);
+        try {
+            Query q = QueryFactory.create(sparql);
+            try (QueryExecution qe = conn.query(q)) {
+                ResultSet rs = qe.execSelect();
+                while (rs.hasNext()) {
+                    QuerySolution row = rs.nextSolution();
+                    String iri = row.getResource("iri").getURI();
+                    String localName = extractLocalName(iri);
+                    map.put(localName, iri);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Could not build local name map from TBox <{}>: {}", tboxGraphUri, e.getMessage());
+        }
+        return map;
+    }
+
+    /** Extracts the local name from a full IRI (after the last '#' or '/'). */
+    private String extractLocalName(String iri) {
+        int hash = iri.lastIndexOf('#');
+        int slash = iri.lastIndexOf('/');
+        int idx = Math.max(hash, slash);
+        return idx >= 0 ? iri.substring(idx + 1) : iri;
+    }
+
+    /**
+     * Produces a URL-safe slug from a human-readable label.
+     * Deterministic: same label always yields the same slug.
+     * Example: "Apple Inc." → "apple-inc"
+     */
+    private String slugify(String label) {
+        if (label == null) return "";
+        return label.toLowerCase()
+                    .replaceAll("[^a-z0-9]+", "-")
+                    .replaceAll("(^-|-$)", "");
+    }
+
+    /**
+     * Produces a deterministic UUID from dataset + slugified label.
+     * This preserves canonical UUID URLs while keeping ingestion idempotent.
+     */
+    private String canonicalEntityId(String datasetId, EntityDto entity) {
+        String label = entity != null && entity.label != null ? entity.label : "";
+        String slug = slugify(label);
+        String seed = datasetId + ":" + slug;
+        return UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString();
+    }
+
+    /**
+     * Resolves a local ontology term to a known IRI, or mints a safe fallback IRI in the ontology namespace.
+     * This keeps ingestion open-world: unknown model terms are preserved rather than rejected.
+     */
+    private String resolveOntologyIri(String localName, Map<String, String> localNameToIri) {
+        if (localName == null || localName.isBlank()) {
+            return ONTOLOGY_NS + "unknown";
+        }
+        String known = localNameToIri.get(localName);
+        if (known != null) return known;
+        return ONTOLOGY_NS + sanitizeLocalName(localName);
+    }
+
+    /**
+     * Produces a conservative local name that is safe to append to an ontology namespace.
+     * Keeps alphanumerics, underscore, and hyphen; collapses other runs to a single hyphen.
+     */
+    private String sanitizeLocalName(String raw) {
+        String safe = raw.trim()
+                .replaceAll("[^A-Za-z0-9_-]+", "-")
+                .replaceAll("(^-|-$)", "");
+        return safe.isEmpty() ? "unknown" : safe;
+    }
+
+    /** Escapes special characters in a string for safe embedding in a SPARQL literal. */
+    private String escapeSparqlLiteral(String value) {
+        if (value == null) return "";
+        return value.replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r");
+    }
+
+    private DatasetConfig resolveDataset(String datasetId) {
+        return manifest.getDatasets().stream()
+                .filter(d -> d.getId().equals(datasetId))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private ResponseEntity<String> datasetNotFound(String dataset) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":\"Unknown dataset: " + dataset + "\"}");
+    }
+
+    private String jsonString(String value) {
+        if (value == null) return "null";
+        return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"";
+    }
+}
