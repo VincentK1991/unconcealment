@@ -121,8 +121,9 @@ trigger dataset="economic-census":
 
 # Index one PDF or all PDFs in a directory with bounded Temporal in-flight workflows
 # Usage: just index-pdfs data/economic-census
-# Usage: just index-pdfs data/public-health/nhsr144-508.pdf public-health 3 1
-index-pdfs input_path dataset="" max_in_flight="2" limit="":
+# Usage: just index-pdfs data/economic-census economic-census 2 "" 3   (offset=3, no limit)
+# Usage: just index-pdfs data/economic-census economic-census 2 5  3   (offset=3, limit=5)
+index-pdfs input_path dataset="" max_in_flight="2" limit="" offset="":
     cd {{INDEXING_DIR}} && \
         DATABASE_URL="postgresql://admin:test1234@localhost:5433/kg" \
         TEMPORAL_ADDRESS="localhost:7233" \
@@ -135,7 +136,7 @@ index-pdfs input_path dataset="" max_in_flight="2" limit="":
         MINIO_BUCKET="${MINIO_BUCKET:-documents}" \
         MINIO_OBJECT_PREFIX="${MINIO_OBJECT_PREFIX:-raw}" \
         MANIFEST_PATH="{{justfile_directory()}}/ontology/manifest.yaml" \
-        sh -c 'cmd="npx ts-node src/scripts/indexPdfs.ts \"{{justfile_directory()}}/{{input_path}}\" --max-in-flight \"{{max_in_flight}}\""; if [ -n "{{dataset}}" ]; then cmd="$cmd --dataset \"{{dataset}}\""; fi; if [ -n "{{limit}}" ]; then cmd="$cmd --limit \"{{limit}}\""; fi; eval "$cmd"'
+        sh -c 'cmd="npx ts-node src/scripts/indexPdfs.ts \"{{justfile_directory()}}/{{input_path}}\" --max-in-flight \"{{max_in_flight}}\""; if [ -n "{{dataset}}" ]; then cmd="$cmd --dataset \"{{dataset}}\""; fi; if [ -n "{{offset}}" ]; then cmd="$cmd --offset \"{{offset}}\""; fi; if [ -n "{{limit}}" ]; then cmd="$cmd --limit \"{{limit}}\""; fi; eval "$cmd"'
 
 # Remove one document from graph + Postgres + MinIO using the cleanup workflow
 # Usage: just cleanup economic-census
@@ -178,6 +179,20 @@ health:
 # Show triple counts per dataset
 metrics:
     @curl -s http://localhost:8080/health/metrics | jq .
+
+# Clear asserted + normalization graphs for a dataset (use before reindexing)
+# Usage: just clear-graph economic-census
+# Usage: just clear-graph public-health
+clear-graph dataset:
+    @echo "Clearing abox:asserted for dataset '{{dataset}}'..."
+    curl -sf -X POST "http://localhost:8080/query/update?dataset={{dataset}}" \
+        -H "Content-Type: application/sparql-update" \
+        --data-binary "CLEAR SILENT GRAPH <urn:{{dataset}}:abox:asserted>"
+    @echo "Clearing normalization for dataset '{{dataset}}'..."
+    curl -sf -X POST "http://localhost:8080/query/update?dataset={{dataset}}" \
+        -H "Content-Type: application/sparql-update" \
+        --data-binary "CLEAR SILENT GRAPH <urn:{{dataset}}:normalization>"
+    @echo "Done."
 
 # ─── Shortcuts ────────────────────────────────────────────────────────────────
 

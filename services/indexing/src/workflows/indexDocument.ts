@@ -1,5 +1,6 @@
 import { proxyActivities, workflowInfo } from "@temporalio/workflow";
 import type * as activities from "../activities";
+import type { ExtractionRelationship } from "../activities";
 import { PIPELINE_CONSTANTS } from "../constants/pipeline";
 
 // ─── Retry policy shared across all activity groups ────────────────────────
@@ -54,14 +55,34 @@ const {
   },
 });
 
-// ─── Extract: single LLM call that can run several minutes for large docs ──
-const { extractEntities } = proxyActivities<typeof activities>({
-  startToCloseTimeout: "20 minutes",
-  heartbeatTimeout:    "10 minutes", // must exceed the longest expected LLM response time
+// ─── Extract: one LLM call per chunk, fanned out in parallel ──────────────
+const { extractEntitiesFromChunk } = proxyActivities<typeof activities>({
+  startToCloseTimeout: "5 minutes",
+  heartbeatTimeout:    "3 minutes",
   retry: {
     ...baseRetry,
-    nonRetryableErrorTypes: ["NonRetryableExtractionSchemaError"],
+    nonRetryableErrorTypes: [
+      "NonRetryableExtractionSchemaError",
+      "NonRetryableExtractionChunkNotFoundError",
+    ],
   },
+});
+
+// ─── Normalize step 1: SPARQL + Jaro-Winkler (fast, no LLM) ──────────────
+const {
+  normalizeEntitiesRuleBased,
+  deleteNormalization,
+} = proxyActivities<typeof activities>({
+  startToCloseTimeout: "5 minutes",
+  heartbeatTimeout:    "2 minutes",
+  retry: { ...baseRetry },
+});
+
+// ─── Normalize step 2: LLM judge for medium-confidence pairs ──────────────
+const { normalizeEntitiesLlm } = proxyActivities<typeof activities>({
+  startToCloseTimeout: "15 minutes",
+  heartbeatTimeout:    "3 minutes",
+  retry: { ...baseRetry },
 });
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -82,8 +103,9 @@ export async function indexDocument(input: IndexDocumentInput): Promise<void> {
   let uploaded: Awaited<ReturnType<typeof uploadSourceDocument>> | undefined;
   let snapshotBucket: string | null = null;
   let snapshotObjectKey: string | null = null;
-  let documentStored = false;
-  let graphStored = false;
+  let documentStored    = false;
+  let graphStored       = false;
+  let normalizationDone = false;
 
   try {
     uploaded = await uploadSourceDocument({
@@ -117,25 +139,63 @@ export async function indexDocument(input: IndexDocumentInput): Promise<void> {
     snapshotObjectKey = stored.snapshotObjectKey;
     documentStored    = true;
 
-    const { entities, relationships } = await extractEntities({
-      datasetId:      input.datasetId,
-      documentIri:    input.documentIri,
-      textBucket:     resolved.textBucket,
-      textObjectKey:  resolved.textObjectKey,
-      chunkIds:       stored.chunkIds,
-    });
+    // Fan out: one extraction activity per chunk, all in parallel.
+    const chunkResults = await Promise.all(
+      stored.chunkIds.map(chunkId => extractEntitiesFromChunk({
+        datasetId:   input.datasetId,
+        documentIri: input.documentIri,
+        chunkId,
+      }))
+    );
+
+    // Merge results: flatten entities and re-offset relationship indices so
+    // subjectId/objectId are valid positions in the combined entities array.
+    const allEntities = chunkResults.flatMap(r => r.entities);
+    const allRelationships: ExtractionRelationship[] = [];
+    let entityOffset = 0;
+    for (const result of chunkResults) {
+      for (const rel of result.relationships) {
+        allRelationships.push({
+          ...rel,
+          subjectId: rel.subjectId + entityOffset,
+          objectId:  rel.objectIsLiteral ? null : rel.objectId! + entityOffset,
+        });
+      }
+      entityOffset += result.entities.length;
+    }
 
     await assertToGraph({
       datasetId:     input.datasetId,
       documentIri:   input.documentIri,
       indexingRunId,
-      entities,
-      relationships,
+      entities:      allEntities,
+      relationships: allRelationships,
     });
     graphStored = true;
+
+    const ruleBasedResult = await normalizeEntitiesRuleBased({
+      datasetId:     input.datasetId,
+      indexingRunId,
+    });
+    // Only fire the LLM step if the rule-based step found medium-confidence pairs.
+    if (ruleBasedResult.llmCandidates.length > 0) {
+      await normalizeEntitiesLlm({
+        datasetId:     input.datasetId,
+        indexingRunId,
+        llmCandidates: ruleBasedResult.llmCandidates,
+      });
+    }
+    normalizationDone = true;
   } catch (error) {
     // ── Compensation (best-effort rollback) ────────────────────────────────
     try {
+      if (normalizationDone) {
+        await deleteNormalization({
+          datasetId:    input.datasetId,
+          indexingRunId,
+        });
+      }
+
       if (graphStored) {
         await deleteGraphAssertions({
           datasetId:   input.datasetId,

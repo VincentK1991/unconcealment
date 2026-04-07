@@ -2,19 +2,28 @@ import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
 import { z } from "zod";
 import { ApplicationFailure } from "@temporalio/common";
+import { PrismaClient } from "@prisma/client";
 import { getDataset } from "../config/manifest";
-import { getObjectStorageClient, streamToBuffer } from "../config/objectStorage";
 import {
   buildExtractionSystemPrompt,
   PIPELINE_CONSTANTS,
   SPARQL_ONTOLOGY_CONTEXT_QUERY,
 } from "../constants/pipeline";
 
+const prisma = new PrismaClient();
+
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+const AttributeSchema = z.object({
+  predicate: z.string().describe("Ontology property local name (e.g. 'foundedIn')"),
+  value:     z.string().describe("Scalar literal value (date, number, text)"),
+});
+
 const EntitySchema = z.object({
-  label: z.string().describe("Human-readable entity label (e.g. 'Apple Inc.')"),
-  type:  z.string().describe("Ontology class local name (e.g. 'Organization')"),
+  label:       z.string().describe("Human-readable entity label (e.g. 'Apple Inc.')"),
+  type:        z.string().describe("Ontology class local name (e.g. 'Organization')"),
+  description: z.string().describe("1-3 sentence factual summary of this entity drawn directly from the text; empty string if insufficient context"),
+  attributes:  z.array(AttributeSchema).describe("Scalar facts intrinsic to this entity (dates, identifiers, amounts) — do NOT duplicate facts already expressed as inter-entity relationships"),
 });
 
 const RelationshipSchema = z.object({
@@ -31,15 +40,14 @@ const ExtractionResultSchema = z.object({
   relationships: z.array(RelationshipSchema),
 });
 
-export type ExtractionEntity = z.infer<typeof EntitySchema>;
+export type ExtractionAttribute  = z.infer<typeof AttributeSchema>;
+export type ExtractionEntity     = z.infer<typeof EntitySchema>;
 export type ExtractionRelationship = z.infer<typeof RelationshipSchema>;
 
-export interface ExtractEntitiesInput {
-  datasetId: string;
-  documentIri: string;
-  textBucket: string;
-  textObjectKey: string;
-  chunkIds: string[];
+export interface ExtractEntitiesFromChunkInput {
+  datasetId:    string;
+  documentIri:  string;
+  chunkId:      string;
 }
 
 export interface ExtractEntitiesOutput {
@@ -55,30 +63,38 @@ interface OntologyBinding {
 }
 
 /**
- * Activity: extract entities and relationships from document text using structured output.
+ * Activity: extract entities and relationships from a single document chunk.
  *
+ * Reads chunk text from the database by chunkId (written by embedAndStore).
  * Ontology context (classes + properties) is fetched live from the graph via POST /query/tbox.
- * The LLM outputs entity labels and ontology local names — no IRIs. IRI minting is delegated
- * to the Java backend, which has access to Apache Jena for proper RDF/SPARQL generation.
+ * The LLM outputs entity labels and ontology local names — no IRIs. IRI minting and entity
+ * deduplication (upsert by label+type) are delegated to the Java backend (assertToGraph).
  *
- * Output shape: { entities: [{ label, type }], relationships: [{ subjectId, predicate, objectId, objectLiteral, objectIsLiteral, confidence }] }
- * Entities are referenced by their 0-based index in the entities array.
+ * The workflow fans out one of these activities per chunk, collects all results, re-offsets
+ * relationship indices to a flat entity array, then calls assertToGraph once.
  */
-export async function extractEntities(
-  input: ExtractEntitiesInput
+export async function extractEntitiesFromChunk(
+  input: ExtractEntitiesFromChunkInput
 ): Promise<ExtractEntitiesOutput> {
   const dataset = getDataset(input.datasetId);
   const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8080";
 
-  const storageClient = getObjectStorageClient();
-  const textStream = await storageClient.getObject(input.textBucket, input.textObjectKey);
-  const text = (await streamToBuffer(textStream)).toString("utf8");
+  const chunk = await prisma.documentChunk.findUnique({
+    where:  { id: input.chunkId },
+    select: { chunkText: true },
+  });
+  if (!chunk) {
+    throw ApplicationFailure.nonRetryable(
+      `Chunk ${input.chunkId} not found in database`,
+      "NonRetryableExtractionChunkNotFoundError"
+    );
+  }
 
   const { classes, properties } = await fetchOntologyContext(backendUrl, input.datasetId, dataset.label);
   const systemPrompt = buildExtractionSystemPrompt(classes, properties);
 
   try {
-    return await callStructuredExtraction(systemPrompt, text);
+    return await callStructuredExtraction(systemPrompt, chunk.chunkText);
   } catch (firstError) {
     // Only apply the "retry with error context" prompt for schema/validation failures.
     // Transient errors (rate limits, network) should be re-thrown so Temporal retries cleanly.
@@ -90,7 +106,7 @@ export async function extractEntities(
     try {
       return await callStructuredExtraction(
         systemPrompt,
-        `The previous extraction returned invalid output: ${reason}\n\nExtract entities and relationships from:\n\n${text}`
+        `The previous extraction returned invalid output: ${reason}\n\nExtract entities and relationships from:\n\n${chunk.chunkText}`
       );
     } catch (retryError) {
       const retryMessage =

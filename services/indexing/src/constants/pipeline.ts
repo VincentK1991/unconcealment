@@ -1,14 +1,25 @@
 export const PIPELINE_CONSTANTS = {
   chunk: {
-    size: 800,
+    size: 16000,
     overlap: 100,
   },
   models: {
-    embedding: "text-embedding-3-small",
-    extraction: "gpt-4o-2024-08-06",
+    embedding:   "text-embedding-3-small",
+    extraction:  "gpt-4o-2024-08-06",
+    normalization: "gpt-4o-2024-08-06",
   },
   extraction: {
     method: "llm:gpt-4o+liteparse",
+  },
+  normalization: {
+    // Jena-text top-K candidates fetched per new entity
+    candidateLimit: 100,
+    // Jaro-Winkler: at or above this → assert sameAs without LLM
+    highConfidenceThreshold: 0.92,
+    // Jaro-Winkler: at or above this but below high → send to LLM
+    lowConfidenceThreshold: 0.75,
+    // LLM judgements at or above this confidence are accepted
+    llmAcceptThreshold: 0.80,
   },
   retry: {
     initialIntervalMs: 1000,
@@ -58,7 +69,15 @@ Extract entities and relationships from the provided text using the ontology bel
 OUTPUT FORMAT:
 {
   "entities": [
-    { "label": "<human-readable entity name>", "type": "<ontology class local name>" },
+    {
+      "label": "<human-readable entity name>",
+      "type": "<ontology class local name>",
+      "description": "<1-3 sentence factual summary of this entity drawn directly from the text>",
+      "attributes": [
+        { "predicate": "<ontology property local name>", "value": "<scalar literal>" },
+        ...
+      ]
+    },
     ...
   ],
   "relationships": [
@@ -80,18 +99,32 @@ RULES:
 - If objectIsLiteral is false: set objectId to the entity's index, set objectLiteral to null.
 - If objectIsLiteral is true: set objectLiteral to the literal value (date, number, text), set objectId to null.
 - Only extract relationships explicitly supported by the text — do not infer.
+- description: write 1-3 sentences summarising what this entity is, based solely on the text. Use an empty string if the text provides no meaningful context.
+- attributes: capture scalar facts that are INTRINSIC to the entity itself (e.g. founding year, publication date, identifier codes, geographic location). Do NOT repeat here facts that are already expressed as an inter-entity relationship in the relationships array.
 
 EXAMPLE:
-Text: "Apple Inc. was founded in 1976. Tim Cook is the CEO of Apple Inc."
+Text: "Apple Inc. was founded in 1976 in Cupertino, CA. Tim Cook is the CEO of Apple Inc."
 
 {
   "entities": [
-    { "label": "Apple Inc.", "type": "Organization" },
-    { "label": "Tim Cook",   "type": "Person" }
+    {
+      "label": "Apple Inc.",
+      "type": "Organization",
+      "description": "Apple Inc. is a technology company founded in 1976 and headquartered in Cupertino, CA.",
+      "attributes": [
+        { "predicate": "foundingYear", "value": "1976" },
+        { "predicate": "headquarteredIn", "value": "Cupertino, CA" }
+      ]
+    },
+    {
+      "label": "Tim Cook",
+      "type": "Person",
+      "description": "Tim Cook is the CEO of Apple Inc.",
+      "attributes": []
+    }
   ],
   "relationships": [
-    { "subjectId": 0, "predicate": "foundedIn",  "objectId": null, "objectLiteral": "1976", "objectIsLiteral": true,  "confidence": 0.95 },
-    { "subjectId": 1, "predicate": "isLeaderOf", "objectId": 0,    "objectLiteral": null,   "objectIsLiteral": false, "confidence": 0.92 }
+    { "subjectId": 1, "predicate": "isLeaderOf", "objectId": 0, "objectLiteral": null, "objectIsLiteral": false, "confidence": 0.92 }
   ]
 }
 (entities[0] = "Apple Inc.", entities[1] = "Tim Cook" — subjectId/objectId reference those positions)
@@ -99,6 +132,6 @@ Text: "Apple Inc. was founded in 1976. Tim Cook is the CEO of Apple Inc."
 Ontology classes (use the local name as the entity "type"):
 ${ontologyClasses}
 
-Ontology properties (use the local name as the relationship "predicate"):
+Ontology properties (use the local name as the relationship "predicate" or attribute "predicate"):
 ${ontologyProperties}`;
 }

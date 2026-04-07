@@ -13,6 +13,7 @@ interface CliOptions {
   inputPath: string;
   datasetId?: string;
   maxInFlight: number;
+  offset?: number;
   limit?: number;
   dryRun: boolean;
   continueOnError: boolean;
@@ -51,6 +52,9 @@ async function main(): Promise<void> {
 
   console.log(`Discovered ${documents.length} PDF file(s).`);
   console.log(`Max in-flight workflows: ${options.maxInFlight}`);
+  if (options.offset !== undefined) {
+    console.log(`Offset: ${options.offset}`);
+  }
   if (options.limit !== undefined) {
     console.log(`Limit: ${options.limit}`);
   }
@@ -222,10 +226,9 @@ async function discoverDocuments(options: CliOptions): Promise<PendingDocument[]
   }
 
   documents.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
-  if (options.limit !== undefined) {
-    return documents.slice(0, options.limit);
-  }
-  return documents;
+  const start = options.offset ?? 0;
+  const end   = options.limit !== undefined ? start + options.limit : undefined;
+  return documents.slice(start, end);
 }
 
 async function collectPdfFiles(root: string): Promise<string[]> {
@@ -278,6 +281,7 @@ function parseArgs(argv: string[]): CliOptions {
   let inputPath: string | undefined;
   let datasetId: string | undefined;
   let maxInFlight = 2;
+  let offset: number | undefined;
   let limit: number | undefined;
   let dryRun = false;
   let continueOnError = false;
@@ -298,6 +302,17 @@ function parseArgs(argv: string[]): CliOptions {
         throw new Error(`--max-in-flight must be a positive integer. Received: ${raw}`);
       }
       maxInFlight = parsed;
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--offset") {
+      const raw = requireValue(arg, argv[index + 1]);
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error(`--offset must be a non-negative integer. Received: ${raw}`);
+      }
+      offset = parsed;
       index += 1;
       continue;
     }
@@ -346,6 +361,7 @@ function parseArgs(argv: string[]): CliOptions {
     inputPath,
     datasetId,
     maxInFlight,
+    offset,
     limit,
     dryRun,
     continueOnError,
@@ -367,12 +383,22 @@ function printUsageAndExit(errorMessage?: string): never {
 
   console.error("Usage:");
   console.error(
-    "  npx ts-node src/scripts/indexPdfs.ts <path> [--dataset <dataset-id>] [--max-in-flight <n>] [--limit <n>] [--dry-run] [--continue-on-error]"
+    "  npx ts-node src/scripts/indexPdfs.ts <path> [--dataset <id>] [--max-in-flight <n>] [--offset <n>] [--limit <n>] [--dry-run] [--continue-on-error]"
   );
+  console.error("");
+  console.error("Options:");
+  console.error("  --offset <n>          Skip the first N documents (sorted alphabetically). Use to resume a run.");
+  console.error("  --limit <n>           Process at most N documents after the offset.");
+  console.error("  --max-in-flight <n>   Max concurrent workflows (default: 2).");
+  console.error("  --dry-run             Print what would be indexed without starting workflows.");
+  console.error("  --continue-on-error   Keep going if a workflow fails.");
   console.error("");
   console.error("Examples:");
   console.error(
-    "  npx ts-node src/scripts/indexPdfs.ts ../../data/economic-census --max-in-flight 2 --limit 2"
+    "  npx ts-node src/scripts/indexPdfs.ts ../../data/economic-census --max-in-flight 2 --limit 3"
+  );
+  console.error(
+    "  npx ts-node src/scripts/indexPdfs.ts ../../data/economic-census --offset 3 --limit 3"
   );
   console.error(
     "  npx ts-node src/scripts/indexPdfs.ts ../../data/public-health/nhsr144-508.pdf"

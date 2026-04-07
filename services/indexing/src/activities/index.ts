@@ -1,6 +1,10 @@
 export { embedAndStore } from "./embedAndStore";
-export { extractEntities } from "./extractEntities";
+export { extractEntitiesFromChunk } from "./extractEntities";
+export type { ExtractionEntity, ExtractionRelationship, ExtractEntitiesOutput } from "./extractEntities";
 export { assertToGraph } from "./assertToGraph";
+export { normalizeEntitiesRuleBased, deleteNormalization } from "./normalizeEntitiesRuleBased";
+export type { NormalizeEntitiesRuleBasedOutput, LlmCandidate } from "./normalizeEntitiesRuleBased";
+export { normalizeEntitiesLlm } from "./normalizeEntitiesLlm";
 export { resolveDocumentContent } from "./resolveDocumentContent";
 export { uploadSourceDocument } from "./uploadSourceDocument";
 export { deleteSourceDocument } from "./deleteSourceDocument";

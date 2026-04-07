@@ -62,9 +62,16 @@ public class IngestController {
     // DTOs
     // -------------------------------------------------------------------------
 
+    public static class AttributeDto {
+        public String predicate;
+        public String value;
+    }
+
     public static class EntityDto {
         public String label;
         public String type;
+        public String description;
+        public List<AttributeDto> attributes;
     }
 
     public static class RelationshipDto {
@@ -140,6 +147,11 @@ public class IngestController {
             String entityIri = entityIris[i];
             String slug = slugify(entity.label);
 
+            // rdfs:label — human-readable label; indexed by Jena-text (Lucene) for full-text search
+            triples.append("    <").append(entityIri).append("> ")
+                   .append("<http://www.w3.org/2000/01/rdf-schema#label> ")
+                   .append("\"").append(escapeSparqlLiteral(entity.label)).append("\" .\n");
+
             // ex:slug — used by the web server's slug → IRI lookup
             triples.append("    <").append(entityIri).append("> ")
                    .append("<").append(ONTOLOGY_NS).append("slug> ")
@@ -150,9 +162,34 @@ public class IngestController {
                 log.info("[{}] Unknown entity type local name '{}' for entity '{}' — minting IRI <{}> (open-world)",
                         dataset, entity.type, entity.label, typeIri);
             }
-            triples.append("    <").append(entityIri).append("> ")
-                   .append("<http://www.w3.org/1999/02/22-rdf-syntax-ns#type> ")
-                   .append("<").append(typeIri).append("> .\n");
+            String typeS = "<" + entityIri + ">";
+            String typeP = "<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>";
+            String typeO = "<" + typeIri + ">";
+            triples.append("    ").append(typeS).append(" ").append(typeP).append(" ").append(typeO).append(" .\n");
+            triples.append("    << ").append(typeS).append(" ").append(typeP).append(" ").append(typeO).append(" >>\n")
+                   .append("      <").append(ONTOLOGY_NS).append("sourceDocument>   <").append(request.documentIri).append("> ;\n")
+                   .append("      <").append(ONTOLOGY_NS).append("extractedAt>      \"").append(escapeSparqlLiteral(request.extractedAt)).append("\"^^<http://www.w3.org/2001/XMLSchema#dateTime> ;\n")
+                   .append("      <").append(ONTOLOGY_NS).append("extractionMethod> \"").append(escapeSparqlLiteral(request.extractionMethod)).append("\" ;\n")
+                   .append("      <").append(ONTOLOGY_NS).append("indexingRun>      \"").append(escapeSparqlLiteral(request.indexingRunId)).append("\" ;\n")
+                   .append("      <").append(ONTOLOGY_NS).append("transactionTime>  \"").append(escapeSparqlLiteral(now)).append("\"^^<http://www.w3.org/2001/XMLSchema#dateTime> .\n\n");
+
+            // rdfs:comment (description)
+            if (entity.description != null && !entity.description.isBlank()) {
+                triples.append("    <").append(entityIri).append("> ")
+                       .append("<http://www.w3.org/2000/01/rdf-schema#comment> ")
+                       .append("\"").append(escapeSparqlLiteral(entity.description)).append("\" .\n");
+            }
+
+            // entity-level scalar attributes
+            if (entity.attributes != null) {
+                for (AttributeDto attr : entity.attributes) {
+                    if (attr.predicate == null || attr.value == null) continue;
+                    String predicateIri = resolveOntologyIri(attr.predicate, localNameToIri);
+                    triples.append("    <").append(entityIri).append("> ")
+                           .append("<").append(predicateIri).append("> ")
+                           .append("\"").append(escapeSparqlLiteral(attr.value)).append("\" .\n");
+                }
+            }
         }
 
         // --- Relationship triples with RDF-star provenance ---
@@ -290,14 +327,21 @@ public class IngestController {
     }
 
     /**
-     * Produces a deterministic UUID from dataset + slugified label.
-     * This preserves canonical UUID URLs while keeping ingestion idempotent.
+     * Produces a dataset-scoped, human-readable entity path segment of the form
+     * "{datasetId}/{slug}-{shortHash}" where shortHash is the first 8 hex chars of
+     * a UUID v3 seeded on "dataset:type:slug". This is both readable and collision-safe.
+     *
+     * mintIri appends this after the aboxSegment ("entity"), yielding:
+     *   {baseUri}/entity/{datasetId}/{slug}-{shortHash}
      */
     private String canonicalEntityId(String datasetId, EntityDto entity) {
         String label = entity != null && entity.label != null ? entity.label : "";
-        String slug = slugify(label);
-        String seed = datasetId + ":" + slug;
-        return UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString();
+        String type  = entity != null && entity.type  != null ? entity.type  : "";
+        String slug  = slugify(label);
+        String seed  = datasetId + ":" + type + ":" + slug;
+        String uuid  = UUID.nameUUIDFromBytes(seed.getBytes(StandardCharsets.UTF_8)).toString();
+        String hash  = uuid.replace("-", "").substring(0, 8);
+        return datasetId + "/" + slug + "-" + hash;
     }
 
     /**

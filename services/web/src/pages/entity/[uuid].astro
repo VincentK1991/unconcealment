@@ -15,7 +15,7 @@ const aboxInferred = `urn:${datasetId}:abox:inferred`;
 
 const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
 const BASE_URI = import.meta.env.BASE_URI;
-let entityIri = BASE_URI ? `${BASE_URI}/entity/${entityIdParam}` : "";
+let entityIri = BASE_URI ? `${BASE_URI}/entity/${datasetId}/${entityIdParam}` : "";
 
 interface Triple {
   p: { value: string };
@@ -31,14 +31,16 @@ interface EntityDisplayMeta {
   slug?: { value: string };
 }
 
-const RDFS_LABEL = "http://www.w3.org/2000/01/rdf-schema#label";
-const EX_SLUG = "https://kg.unconcealment.io/ontology/slug";
+const RDFS_LABEL   = "http://www.w3.org/2000/01/rdf-schema#label";
+const RDFS_COMMENT = "http://www.w3.org/2000/01/rdf-schema#comment";
+const EX_SLUG      = "https://kg.unconcealment.io/ontology/slug";
 
 let titleText = entityIdParam;
 let triples: Triple[] = [];
+let entityDescription: string | null = null;
 let error: string | null = null;
 const escapedEntityIdParam = entityIdParam.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
-const escapedEntityPathSuffix = `/entity/${escapedEntityIdParam}`;
+const escapedEntityPathSuffix = `/entity/${datasetId}/${escapedEntityIdParam}`;
 let canonicalUuid = entityIdParam;
 let entitySlug: string | null = null;
 const objectDisplayMap = new Map<string, { label?: string; slug?: string }>();
@@ -105,12 +107,12 @@ async function fetchEntityDisplayMeta(iris: string[]): Promise<Map<string, { lab
 }
 
 const iriTail = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
-const linkPathFromIri = (iri: string, slug?: string): string => {
+const linkPathFromIri = (iri: string): string => {
   if (iri.includes("/document/")) {
     const key = iriTail(iri);
     return `/document/${encodeURIComponent(key)}?dataset=${encodeURIComponent(datasetId)}`;
   }
-  const id = slug ?? iri.split("/").pop() ?? iri;
+  const id = iriTail(iri);
   return `/entity/${encodeURIComponent(id)}?dataset=${encodeURIComponent(datasetId)}`;
 };
 
@@ -150,40 +152,15 @@ try {
     }
   }
 
-  // Slug URL compatibility: resolve by slug, but keep slug URL (no redirect).
-  if (triples.length === 0) {
-    const slugLookupSparql = `
-      PREFIX ex: <https://kg.unconcealment.io/ontology/>
-      SELECT ?entity WHERE {
-        GRAPH ?g {
-          ?entity ex:slug "${escapedEntityIdParam}" .
-        }
-        FILTER(?g IN (<${aboxAsserted}>, <${aboxInferred}>))
-      }
-      LIMIT 1
-    `;
-    const slugRes = await fetch(`${BACKEND_URL}/query/raw?dataset=${encodeURIComponent(datasetId)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/sparql-query" },
-      body: slugLookupSparql,
-    });
-    if (slugRes.ok) {
-      const slugData = await slugRes.json() as { results?: { bindings?: Array<{ entity?: { value: string } }> } };
-      const resolvedEntityIri = slugData?.results?.bindings?.[0]?.entity?.value ?? null;
-      if (resolvedEntityIri) {
-        entityIri = resolvedEntityIri;
-        triples = await fetchTriples(entityIri);
-      }
-    }
-  }
-
   if (entityIri) {
     canonicalUuid = entityIri.split("/").pop() ?? entityIdParam;
   }
 
-  const labelTriple = triples.find((t) => t.p.value === RDFS_LABEL && t.o.type !== "uri");
-  const slugTriple = triples.find((t) => t.p.value === EX_SLUG && t.o.type !== "uri");
-  entitySlug = slugTriple?.o.value ?? null;
+  const labelTriple       = triples.find((t) => t.p.value === RDFS_LABEL   && t.o.type !== "uri");
+  const slugTriple        = triples.find((t) => t.p.value === EX_SLUG      && t.o.type !== "uri");
+  const descriptionTriple = triples.find((t) => t.p.value === RDFS_COMMENT && t.o.type !== "uri");
+  entitySlug        = slugTriple?.o.value ?? null;
+  entityDescription = descriptionTriple?.o.value ?? null;
   titleText = labelTriple?.o.value ?? entitySlug ?? canonicalUuid;
 
   const objectIris = Array.from(
@@ -244,6 +221,7 @@ const shortPredicate = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
       body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
       h1 { font-size: 1.6rem; }
       .iri { font-size: 0.8rem; color: #777; word-break: break-all; }
+      .description { margin: 0.6rem 0 0.4rem; color: #333; line-height: 1.5; }
       .meta { margin: 0.5rem 0 1rem; background: #f8f8f8; border: 1px solid #e5e5e5; border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.85rem; }
       .meta-row { margin: 0.15rem 0; }
       .meta-key { color: #666; font-weight: 600; margin-right: 0.35rem; }
@@ -262,9 +240,10 @@ const shortPredicate = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
     <a href="/">← Home</a>
     <h1>{titleText}</h1>
     <p class="iri">{entityIri || `(unresolved for ${entityIdParam})`}</p>
+    {entityDescription && <p class="description">{entityDescription}</p>}
     <div class="meta">
-      <div class="meta-row"><span class="meta-key">Canonical UUID:</span><code>{canonicalUuid}</code></div>
-      <div class="meta-row"><span class="meta-key">Slug:</span><code>{entitySlug ?? "—"}</code></div>
+      <div class="meta-row"><span class="meta-key">ID:</span><code>{entityIdParam}</code></div>
+      {entitySlug && <div class="meta-row"><span class="meta-key">Slug:</span><code>{entitySlug}</code></div>}
     </div>
 
     <h2 class="section-title">Provenance Documents</h2>
@@ -301,7 +280,7 @@ const shortPredicate = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
               <td title={t.p.value}>{shortPredicate(t.p.value)}</td>
               <td>
                 {t.o.type === "uri" ? (
-                  <a href={linkPathFromIri(t.o.value, objectDisplayMap.get(t.o.value)?.slug)}>
+                  <a href={linkPathFromIri(t.o.value)}>
                     {objectDisplayMap.get(t.o.value)?.label ?? objectDisplayMap.get(t.o.value)?.slug ?? iriTail(t.o.value)}
                   </a>
                 ) : (
