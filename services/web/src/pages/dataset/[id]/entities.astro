@@ -14,10 +14,11 @@ const q    = (Astro.url.searchParams.get("q") ?? "").trim();
 const offset = (page - 1) * PAGE_SIZE;
 
 interface EntityBinding {
-  entity: { value: string };
-  label?: { value: string };
-  slug?:  { value: string };
-  type?:  { value: string };
+  entity:   { value: string };
+  label?:   { value: string };
+  slug?:    { value: string };
+  type?:    { value: string };
+  comment?: { value: string };
 }
 
 const aboxAsserted = `urn:${datasetId}:abox:asserted`;
@@ -34,15 +35,17 @@ const sparql = `
   PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
   PREFIX owl:  <http://www.w3.org/2002/07/owl#>
   PREFIX ex:   <https://kg.unconcealment.io/ontology/>
-  SELECT DISTINCT ?entity ?label ?slug ?type WHERE {
+  SELECT DISTINCT ?entity ?label ?slug ?type (MIN(?c) AS ?comment) WHERE {
     GRAPH <${aboxAsserted}> {
       ?entity a ?type .
       OPTIONAL { ?entity rdfs:label ?label }
       OPTIONAL { ?entity ex:slug ?slug }
+      OPTIONAL { ?entity rdfs:comment ?c }
       FILTER(?type != owl:NamedIndividual)
       ${searchFilter}
     }
   }
+  GROUP BY ?entity ?label ?slug ?type
   ORDER BY ?label
   LIMIT ${PAGE_SIZE}
   OFFSET ${offset}
@@ -153,8 +156,8 @@ if (totalPages > 1) {
       table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
       th    { text-align: left; border-bottom: 2px solid #ccc; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: #444; text-transform: uppercase; letter-spacing: 0.04em; }
       td    { padding: 0.45rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.875rem; vertical-align: top; }
-      td.type{ color: #667; font-size: 0.8rem; }
-      td.iri { font-size: 0.72rem; color: #999; word-break: break-all; font-family: monospace; }
+      td.type    { color: #667; font-size: 0.8rem; }
+      td.comment { color: #555; font-size: 0.8rem; max-width: 420px; }
       a.el  { color: #1a6bb5; text-decoration: none; }
       a.el:hover { text-decoration: underline; }
       .badge{ display: inline-block; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; margin-left: 0.4rem; }
@@ -214,7 +217,7 @@ if (totalPages > 1) {
         </p>
         <table>
           <thead>
-            <tr><th>Label</th><th>Type</th><th>IRI</th></tr>
+            <tr><th>Label</th><th>Type</th><th>Description</th></tr>
           </thead>
           <tbody>
             {entities.map(row => {
@@ -225,7 +228,7 @@ if (totalPages > 1) {
                 <tr>
                   <td><a class="el" href={`/entity/${encodeURIComponent(datasetId)}/${encodeURIComponent(entityId)}`}>{label}</a></td>
                   <td class="type">{type}</td>
-                  <td class="iri">{row.entity.value}</td>
+                  <td class="comment">{row.comment?.value ?? ""}</td>
                 </tr>
               );
             })}
