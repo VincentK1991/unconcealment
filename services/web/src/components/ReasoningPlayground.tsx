@@ -12,7 +12,15 @@ interface PlaygroundResults {
   baseResults: SparqlResults;
 }
 
-type ResultTab = "table" | "graph" | "turtle" | "diff";
+type ResultTab = "table" | "graph" | "turtle";
+
+interface ExamplePreset {
+  id: string;
+  label: string;
+  description: string;
+  rules: string;
+  query: string;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -97,27 +105,92 @@ function buildGraphData(vars: string[], rows: Binding[]): { nodes: FGNode[]; lin
   return { nodes: Array.from(nodeMap.values()), links };
 }
 
-// ── Default editor content ────────────────────────────────────────────────────
+// ── Verified example presets ──────────────────────────────────────────────────
 
-const DEFAULT_RULES = `# Jena backward-chaining rule syntax
-# Arrow direction: conclusion <- conditions
-# Use full IRIs in angle brackets or prefixed names after @prefix declarations.
-#
-# Example: infer a symmetric relationship
-[symmetry: (?b <http://www.w3.org/2002/07/owl#sameAs> ?a)
-           <- (?a <http://www.w3.org/2002/07/owl#sameAs> ?b)]`;
+const EXAMPLE_PRESETS: ExamplePreset[] = [
+  {
+    id: "conductedBy-parent",
+    label: "conductedBy parent",
+    description: "Recursive backward rule: 2020 Census inherits conductedBy from U.S. Census Bureau up to U.S. Department of Commerce.",
+    rules: `# Verified against /query/playground on the live economic-census dataset.
+-> table(<https://kg.unconcealment.io/ontology/conductedBy>).
 
-const DEFAULT_QUERY = `SELECT ?s ?p ?o
+[conductedByParent:
+  (?survey <https://kg.unconcealment.io/ontology/conductedBy> ?parent)
+  <- (?survey <https://kg.unconcealment.io/ontology/conductedBy> ?org),
+     (?org <https://kg.unconcealment.io/ontology/partOf> ?parent),
+     notEqual(?survey, ?parent)]`,
+    query: `PREFIX ex: <https://kg.unconcealment.io/ontology/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?s ?sLabel ?p ?o ?oLabel
 WHERE {
-  ?s ?p ?o .
+  ?s ex:conductedBy ?o .
+  OPTIONAL { ?s rdfs:label ?sLabel . }
+  OPTIONAL { ?o rdfs:label ?oLabel . }
+  BIND(ex:conductedBy AS ?p)
 }
-LIMIT 20`;
+ORDER BY ?sLabel ?oLabel
+LIMIT 20`,
+  },
+  {
+    id: "transitive-partOf",
+    label: "transitive partOf",
+    description: "Recursive backward rule: GQ Count Imputation Team rolls up through U.S. Census Bureau to U.S. Department of Commerce.",
+    rules: `# Verified against /query/playground on the live economic-census dataset.
+-> table(<https://kg.unconcealment.io/ontology/partOf>).
+
+[transitivePartOf:
+  (?a <https://kg.unconcealment.io/ontology/partOf> ?c)
+  <- (?a <https://kg.unconcealment.io/ontology/partOf> ?b),
+     (?b <https://kg.unconcealment.io/ontology/partOf> ?c),
+     notEqual(?a, ?c)]`,
+    query: `PREFIX ex: <https://kg.unconcealment.io/ontology/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?s ?sLabel ?p ?o ?oLabel
+WHERE {
+  ?s ex:partOf ?o .
+  OPTIONAL { ?s rdfs:label ?sLabel . }
+  OPTIONAL { ?o rdfs:label ?oLabel . }
+  BIND(ex:partOf AS ?p)
+}
+ORDER BY ?sLabel ?oLabel
+LIMIT 20`,
+  },
+  {
+    id: "transitive-sourceDocument",
+    label: "transitive sourceDocument",
+    description: "Recursive backward rule: Disclosure Avoidance System inherits an upstream sourceDocument through U.S. Census Bureau.",
+    rules: `# Verified against /query/playground on the live economic-census dataset.
+-> table(<https://kg.unconcealment.io/ontology/sourceDocument>).
+
+[transitiveSourceDocument:
+  (?a <https://kg.unconcealment.io/ontology/sourceDocument> ?c)
+  <- (?a <https://kg.unconcealment.io/ontology/sourceDocument> ?b),
+     (?b <https://kg.unconcealment.io/ontology/sourceDocument> ?c),
+     notEqual(?a, ?c)]`,
+    query: `PREFIX ex: <https://kg.unconcealment.io/ontology/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?s ?sLabel ?p ?o ?oLabel
+WHERE {
+  ?s ex:sourceDocument ?o .
+  OPTIONAL { ?s rdfs:label ?sLabel . }
+  OPTIONAL { ?o rdfs:label ?oLabel . }
+  BIND(ex:sourceDocument AS ?p)
+}
+ORDER BY ?sLabel ?oLabel
+LIMIT 20`,
+  },
+];
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ReasoningPlayground({ datasetId }: { datasetId: string }) {
-  const [rules, setRules] = useState(DEFAULT_RULES);
-  const [query, setQuery] = useState(DEFAULT_QUERY);
+  const [selectedExampleId, setSelectedExampleId] = useState(EXAMPLE_PRESETS[0].id);
+  const [rules, setRules] = useState(EXAMPLE_PRESETS[0].rules);
+  const [query, setQuery] = useState(EXAMPLE_PRESETS[0].query);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<PlaygroundResults | null>(null);
@@ -171,11 +244,38 @@ export default function ReasoningPlayground({ datasetId }: { datasetId: string }
   const queryBindings = results?.queryResults?.results?.bindings ?? [];
   const baseBindings = results?.baseResults?.results?.bindings ?? [];
   const diffRows = results ? computeDiff(queryVars, baseBindings, queryBindings) : [];
+  const diffRowKeys = new Set(diffRows.map((row) => rowKey(queryVars, row)));
   const graphData = results ? buildGraphData(queryVars, diffRows) : null;
   const turtleText = results ? bindingsToTurtle(queryVars, diffRows) : null;
 
+  const handleLoadExample = (example: ExamplePreset) => {
+    setSelectedExampleId(example.id);
+    setRules(example.rules);
+    setQuery(example.query);
+    setResults(null);
+    setError(null);
+    setActiveTab("table");
+  };
+
   return (
     <div style={{ fontFamily: "system-ui, sans-serif" }}>
+
+      <div style={exampleSectionStyle}>
+        <div style={exampleHeaderStyle}>Verified Recursive Examples</div>
+        <div style={exampleHintStyle}>Each preset uses a tabled recursive backward rule, a fixed-predicate query, and was verified against the live `economic-census` playground endpoint to return inferred rows absent from the base graph.</div>
+        <div style={exampleListStyle}>
+          {EXAMPLE_PRESETS.map((example) => (
+            <button
+              key={example.id}
+              onClick={() => handleLoadExample(example)}
+              style={exampleButtonStyle(example.id === selectedExampleId)}
+            >
+              <strong>{example.label}</strong>
+              <span style={exampleDescriptionStyle}>{example.description}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* ── Editors ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
@@ -183,7 +283,7 @@ export default function ReasoningPlayground({ datasetId }: { datasetId: string }
         <div>
           <label style={labelStyle}>
             Rules
-            <span style={hintStyle}>Jena rule syntax — backward chaining, applied at query time</span>
+            <span style={hintStyle}>Jena rule syntax — recursive backward rules should declare `table(&lt;predicate&gt;)`</span>
           </label>
           <textarea
             value={rules}
@@ -228,16 +328,15 @@ export default function ReasoningPlayground({ datasetId }: { datasetId: string }
       {results && (
         <div style={{ marginTop: "1.5rem" }}>
           <div style={tabBarStyle}>
-            {(["table", "graph", "turtle", "diff"] as ResultTab[]).map((tab) => (
+            {(["table", "graph", "turtle"] as ResultTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 style={tabButtonStyle(tab === activeTab)}
               >
-                {tab === "table" && `Table (${queryBindings.length})`}
+                {tab === "table" && `Table (${queryBindings.length}${diffRows.length > 0 ? `, ${diffRows.length} new` : ""})`}
                 {tab === "graph" && `Graph (${diffRows.length} new)`}
                 {tab === "turtle" && "Raw Turtle"}
-                {tab === "diff" && `Diff (${diffRows.length} new)`}
               </button>
             ))}
           </div>
@@ -248,30 +347,47 @@ export default function ReasoningPlayground({ datasetId }: { datasetId: string }
               {queryBindings.length === 0 ? (
                 <p style={emptyStyle}>No results returned by query.</p>
               ) : (
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      {queryVars.map((v) => (
-                        <th key={v} style={thStyle}>{v}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {queryBindings.map((row, i) => (
-                      <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#fafafa" }}>
+                <>
+                  <div style={tableSummaryStyle}>
+                    {diffRows.length > 0
+                      ? `${diffRows.length} newly inferred row${diffRows.length === 1 ? "" : "s"} highlighted in green.`
+                      : "No newly inferred rows in this result set."}
+                  </div>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={thStyle}></th>
                         {queryVars.map((v) => (
-                          <td key={v} style={tdStyle}>
-                            {row[v]
-                              ? row[v].type === "uri"
-                                ? <span style={{ color: "#1a6bb5", fontFamily: "monospace", fontSize: "0.8rem" }}>{row[v].value}</span>
-                                : <span style={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{row[v].value}</span>
-                              : <span style={{ color: "#bbb" }}>—</span>}
-                          </td>
+                          <th key={v} style={thStyle}>{v}</th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {queryBindings.map((row, i) => {
+                        const isNew = diffRowKeys.has(rowKey(queryVars, row));
+                        const background = isNew
+                          ? i % 2 === 0 ? "#f0fdf4" : "#dcfce7"
+                          : i % 2 === 0 ? "#fff" : "#fafafa";
+                        return (
+                          <tr key={i} style={{ background }}>
+                            <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
+                              {isNew ? <span style={newBadgeStyle}>NEW</span> : null}
+                            </td>
+                            {queryVars.map((v) => (
+                              <td key={v} style={tdStyle}>
+                                {row[v]
+                                  ? row[v].type === "uri"
+                                    ? <span style={{ color: "#1a6bb5", fontFamily: "monospace", fontSize: "0.8rem" }}>{row[v].value}</span>
+                                    : <span style={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{row[v].value}</span>
+                                  : <span style={{ color: "#bbb" }}>—</span>}
+                              </td>
+                            ))}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </>
               )}
             </div>
           )}
@@ -330,42 +446,6 @@ export default function ReasoningPlayground({ datasetId }: { datasetId: string }
             )
           )}
 
-          {/* Diff */}
-          {activeTab === "diff" && (
-            diffRows.length === 0 ? (
-              <p style={emptyStyle}>No new rows — the rules added nothing beyond what was already in the graph.</p>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={thStyle}></th>
-                      {queryVars.map((v) => <th key={v} style={thStyle}>{v}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {diffRows.map((row, i) => (
-                      <tr key={i} style={{ background: i % 2 === 0 ? "#f0fdf4" : "#dcfce7" }}>
-                        <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
-                          <span style={newBadgeStyle}>NEW</span>
-                        </td>
-                        {queryVars.map((v) => (
-                          <td key={v} style={{ ...tdStyle, fontFamily: "monospace", fontSize: "0.78rem" }}>
-                            {row[v]
-                              ? row[v].type === "uri"
-                                ? <span style={{ color: "#1a6bb5" }}>{iriTail(row[v].value)}</span>
-                                : <span>"{row[v].value.slice(0, 80)}{row[v].value.length > 80 ? "…" : ""}"</span>
-                              : <span style={{ color: "#bbb" }}>—</span>
-                            }
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )
-          )}
         </div>
       )}
     </div>
@@ -379,6 +459,54 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 600,
   fontSize: "0.85rem",
   marginBottom: "0.4rem",
+};
+
+const exampleSectionStyle: React.CSSProperties = {
+  marginBottom: "1rem",
+  padding: "0.9rem 1rem",
+  border: "1px solid #e0e0e0",
+  borderRadius: "8px",
+  background: "#fcfcfc",
+};
+
+const exampleHeaderStyle: React.CSSProperties = {
+  fontSize: "0.88rem",
+  fontWeight: 700,
+  color: "#222",
+  marginBottom: "0.25rem",
+};
+
+const exampleHintStyle: React.CSSProperties = {
+  fontSize: "0.8rem",
+  color: "#666",
+  marginBottom: "0.75rem",
+  lineHeight: 1.45,
+};
+
+const exampleListStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "0.75rem",
+};
+
+const exampleButtonStyle = (active: boolean): React.CSSProperties => ({
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "flex-start",
+  gap: "0.35rem",
+  textAlign: "left",
+  padding: "0.75rem 0.85rem",
+  borderRadius: "8px",
+  border: active ? "1px solid #1a6bb5" : "1px solid #d7d7d7",
+  background: active ? "#eef6ff" : "#fff",
+  color: "#222",
+  cursor: "pointer",
+});
+
+const exampleDescriptionStyle: React.CSSProperties = {
+  fontSize: "0.78rem",
+  color: "#666",
+  lineHeight: 1.4,
 };
 
 const hintStyle: React.CSSProperties = {
@@ -447,6 +575,12 @@ const tableStyle: React.CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
   fontSize: "0.85rem",
+};
+
+const tableSummaryStyle: React.CSSProperties = {
+  marginBottom: "0.55rem",
+  fontSize: "0.8rem",
+  color: "#666",
 };
 
 const thStyle: React.CSSProperties = {

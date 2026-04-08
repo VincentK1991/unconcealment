@@ -4,18 +4,27 @@ import com.unconcealment.backend.model.DatasetManifest;
 import com.unconcealment.backend.model.DatasetManifest.DatasetConfig;
 import com.unconcealment.backend.model.DatasetManifest.NamedGraphs;
 import com.unconcealment.backend.service.OntologyLoaderService;
+import org.apache.jena.graph.Node;
 import org.apache.jena.query.Query;
+import org.apache.jena.query.QueryCancelledException;
 import org.apache.jena.query.QueryExecution;
 import org.apache.jena.query.QueryExecutionFactory;
 import org.apache.jena.query.QueryFactory;
 import org.apache.jena.query.ResultSet;
 import org.apache.jena.query.ResultSetFormatter;
+import org.apache.jena.reasoner.TriplePattern;
 import org.apache.jena.rdf.model.InfModel;
 import org.apache.jena.rdf.model.Model;
 import org.apache.jena.rdf.model.ModelFactory;
 import org.apache.jena.rdfconnection.RDFConnection;
+import org.apache.jena.reasoner.rulesys.ClauseEntry;
+import org.apache.jena.reasoner.rulesys.Functor;
 import org.apache.jena.reasoner.rulesys.GenericRuleReasoner;
 import org.apache.jena.reasoner.rulesys.Rule;
+import org.apache.jena.sparql.core.TriplePath;
+import org.apache.jena.sparql.syntax.ElementPathBlock;
+import org.apache.jena.sparql.syntax.ElementVisitorBase;
+import org.apache.jena.sparql.syntax.ElementWalker;
 import org.apache.jena.update.UpdateFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,10 +40,14 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * SPARQL query and update gateway. All consumers (web UI, MCP tools, CLI) route through here.
@@ -56,6 +69,11 @@ public class QueryController {
 
     private static final Logger log = LoggerFactory.getLogger(QueryController.class);
     private static final long PLAYGROUND_MAX_LIMIT = 500L;
+    private static final long PLAYGROUND_QUERY_TIMEOUT_MS = 15_000L;
+    private static final Pattern TABLE_DIRECTIVE =
+            Pattern.compile("\\btable\\s*\\(\\s*([^\\)]+?)\\s*\\)");
+    private static final Pattern TABLE_ALL_DIRECTIVE =
+            Pattern.compile("\\btableAll\\s*\\(\\s*\\)");
 
     private final DatasetManifest manifest;
     private final Map<String, RDFConnection> datasetConnections;
@@ -298,8 +316,8 @@ public class QueryController {
 
         // 1. Parse custom rules
         List<Rule> rules;
+        String ruleText = (req.rules() == null || req.rules().isBlank()) ? "[]" : req.rules();
         try {
-            String ruleText = (req.rules() == null || req.rules().isBlank()) ? "[]" : req.rules();
             rules = Rule.parseRules(ruleText);
         } catch (Exception e) {
             log.warn("[{}] [playground] Rule parse error: {}", dataset, e.getMessage());
@@ -313,14 +331,60 @@ public class QueryController {
         Model base = loadGraphIriTriples(conn, graphs.aboxAsserted());
         long baseSize = base.size();
 
-        // 3. Build InfModel in FORWARD mode for playground safety.
-        //    BACKWARD mode can explode memory with recursive custom rules (e.g. transitivity),
-        //    which is common in playground experimentation.
-        GenericRuleReasoner.RuleMode reasonerMode = GenericRuleReasoner.FORWARD;
+        // 3. Validate rule set + choose reasoner mode safely:
+        //    - Forward-only rules run FORWARD.
+        //    - Backward-only rules run BACKWARD.
+        //    - Mixed-direction rule sets are rejected for now instead of silently changing semantics.
+        //    - Recursive backward rules are allowed only when explicitly tabled.
+        PlaygroundRuleAnalysis ruleAnalysis = analyzeRules(rules, ruleText);
+        if (ruleAnalysis.hasBackwardRules() && ruleAnalysis.hasForwardRules()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"error\":" + jsonString(
+                            "Mixed forward and backward rule sets are not supported in playground yet. " +
+                            "Split the rules by direction so they can run in a single Jena reasoner mode."
+                    ) + "}");
+        }
+
+        if (hasInvalidBackwardRuleConsequentCount(rules)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"error\":" + jsonString(
+                            "Backward rules must have exactly one consequent in Jena. " +
+                            "Rewrite the backward rule so the head contains a single triple pattern or builtin."
+                    ) + "}");
+        }
+
+        if (ruleAnalysis.hasRecursiveRules()) {
+            if (!ruleAnalysis.hasBackwardRules()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"error\":" + jsonString(
+                                "Recursive rules are only supported in playground for backward chaining. " +
+                                "Rewrite the recursive rule as a backward rule and add explicit table(<predicate>) directives."
+                        ) + "}");
+            }
+
+            if (!ruleAnalysis.allRecursivePredicatesTabled()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"error\":" + jsonString(
+                                "Recursive backward rules require explicit tabling in Jena. " +
+                                "Add -> table(<predicate>). for each recursive predicate, or use tableAll(). " +
+                                "Missing table directives for: " + String.join(", ", ruleAnalysis.untabledRecursivePredicates())
+                        ) + "}");
+            }
+        }
+
+        GenericRuleReasoner.RuleMode reasonerMode = ruleAnalysis.hasBackwardRules()
+                ? GenericRuleReasoner.BACKWARD
+                : GenericRuleReasoner.FORWARD;
         GenericRuleReasoner reasoner = new GenericRuleReasoner(rules);
         reasoner.setMode(reasonerMode);
         InfModel infModel = ModelFactory.createInfModel(reasoner, base);
-        infModel.prepare();
+        if (reasonerMode == GenericRuleReasoner.FORWARD) {
+            infModel.prepare();
+        }
 
         // 4. Parse + cap user query once, then execute against inferred and base models.
         Query query;
@@ -334,15 +398,26 @@ public class QueryController {
         }
         enforcePlaygroundLimit(query);
 
+        if (ruleAnalysis.hasRecursiveRules() && hasUnsafeRecursiveQueryShape(query)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"error\":" + jsonString(
+                            "Recursive backward playground queries must use fixed predicates in triple patterns. " +
+                            "Variable predicates and property paths are not allowed with tabled recursive rules."
+                    ) + "}");
+        }
+
         // 5. Execute user SPARQL SELECT against the InfModel
         String queryResultsJson;
         try {
-            try (QueryExecution qExec = QueryExecutionFactory.create(query, infModel)) {
-                ResultSet rs = qExec.execSelect();
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                ResultSetFormatter.outputAsJSON(out, rs);
-                queryResultsJson = out.toString(StandardCharsets.UTF_8);
-            }
+            queryResultsJson = executeModelSelectAsJson(query, infModel);
+        } catch (QueryCancelledException e) {
+            log.warn("[{}] [playground] Inference query timed out after {} ms", dataset, PLAYGROUND_QUERY_TIMEOUT_MS);
+            return ResponseEntity.status(HttpStatus.REQUEST_TIMEOUT)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"error\":" + jsonString(
+                            "Playground query timed out after " + PLAYGROUND_QUERY_TIMEOUT_MS + " ms."
+                    ) + "}");
         } catch (Exception e) {
             log.error("[{}] [playground] Query failed: {}", dataset, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -357,20 +432,27 @@ public class QueryController {
         //    model is safe because the query pattern is bounded by the user's own WHERE clause.
         String baseResultsJson;
         try {
-            try (QueryExecution qExec = QueryExecutionFactory.create(query, base)) {
-                ResultSet rs = qExec.execSelect();
-                ByteArrayOutputStream out = new ByteArrayOutputStream();
-                ResultSetFormatter.outputAsJSON(out, rs);
-                baseResultsJson = out.toString(StandardCharsets.UTF_8);
-            }
+            baseResultsJson = executeModelSelectAsJson(query, base);
+        } catch (QueryCancelledException e) {
+            log.warn("[{}] [playground] Base query timed out (diff unavailable) after {} ms",
+                    dataset, PLAYGROUND_QUERY_TIMEOUT_MS);
+            baseResultsJson = "{\"head\":{\"vars\":[]},\"results\":{\"bindings\":[]}}";
         } catch (Exception e) {
             // Non-fatal: diff view will be unavailable but table/graph still work
             log.warn("[{}] [playground] Base query failed (diff unavailable): {}", dataset, e.getMessage());
             baseResultsJson = "{\"head\":{\"vars\":[]},\"results\":{\"bindings\":[]}}";
+        } finally {
+            try {
+                infModel.reset();
+            } catch (Exception e) {
+                log.debug("[{}] [playground] InfModel reset failed: {}", dataset, e.getMessage());
+            }
         }
 
-        log.debug("[{}] [playground] base={} triples, rules={}, mode=FORWARD, query executed",
-                dataset, baseSize, rules.size());
+        String modeLabel = reasonerMode == GenericRuleReasoner.BACKWARD ? "BACKWARD" : "FORWARD";
+        log.debug("[{}] [playground] base={} triples, rules={}, mode={}, recursive={}, tableAll={}, tabledPredicates={}, query executed",
+                dataset, baseSize, rules.size(), modeLabel,
+                ruleAnalysis.hasRecursiveRules(), ruleAnalysis.tableAll(), ruleAnalysis.tabledPredicates());
 
         String body = "{\"queryResults\":" + queryResultsJson + ",\"baseResults\":" + baseResultsJson + "}";
         return ResponseEntity.ok()
@@ -448,6 +530,18 @@ public class QueryController {
         }
     }
 
+    private String executeModelSelectAsJson(Query query, Model model) {
+        try (QueryExecution qExec = QueryExecution.model(model)
+                .query(query)
+                .timeout(PLAYGROUND_QUERY_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                .build()) {
+            ResultSet rs = qExec.execSelect();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            ResultSetFormatter.outputAsJSON(out, rs);
+            return out.toString(StandardCharsets.UTF_8);
+        }
+    }
+
     /**
      * Guards the playground endpoint against unbounded result serialization.
      * If no LIMIT is present, apply one. If a LIMIT is too high, cap it.
@@ -464,41 +558,169 @@ public class QueryController {
         }
     }
 
-    /**
-     * Detects recursive rules by checking whether any head predicate also appears in its body.
-     * BACKWARD mode with recursive rules (e.g., transitive closure) can create huge search trees.
-     */
-    private boolean hasRecursiveRule(List<Rule> rules) {
+    private PlaygroundRuleAnalysis analyzeRules(List<Rule> rules, String ruleText) {
+        boolean hasBackwardRules = false;
+        boolean hasForwardRules = false;
+        boolean tableAll = false;
+        Set<String> recursivePredicates = new LinkedHashSet<>();
+        Set<String> tabledPredicates = new LinkedHashSet<>();
+
         for (Rule rule : rules) {
-            Set<String> headPredicates = new HashSet<>();
-            for (Object head : rule.getHead()) {
-                String pred = extractPredicateToken(head);
-                if (pred != null) headPredicates.add(pred);
-            }
-            if (headPredicates.isEmpty()) continue;
-            for (Object body : rule.getBody()) {
-                String pred = extractPredicateToken(body);
-                if (pred != null && headPredicates.contains(pred)) {
-                    return true;
+            boolean hasTriplePattern = containsTriplePattern(rule.getHead()) || containsTriplePattern(rule.getBody());
+            if (hasTriplePattern) {
+                if (rule.isBackward()) {
+                    hasBackwardRules = true;
+                } else {
+                    hasForwardRules = true;
                 }
+            }
+
+            Set<String> headPredicates = extractRulePredicates(rule.getHead());
+            Set<String> bodyPredicates = extractRulePredicates(rule.getBody());
+            Set<String> overlap = new LinkedHashSet<>(headPredicates);
+            overlap.retainAll(bodyPredicates);
+            recursivePredicates.addAll(overlap);
+
+            collectTableDirectivePredicates(rule.getHead(), tabledPredicates);
+            collectTableDirectivePredicates(rule.getBody(), tabledPredicates);
+            tableAll = tableAll || containsTableAllDirective(rule.getHead()) || containsTableAllDirective(rule.getBody());
+        }
+
+        if (!tableAll && ruleText != null && TABLE_ALL_DIRECTIVE.matcher(ruleText).find()) {
+            tableAll = true;
+        }
+        if (tabledPredicates.isEmpty() && ruleText != null) {
+            Matcher matcher = TABLE_DIRECTIVE.matcher(ruleText);
+            while (matcher.find()) {
+                tabledPredicates.add(normalizePredicateToken(matcher.group(1)));
+            }
+        }
+
+        return new PlaygroundRuleAnalysis(
+                hasBackwardRules,
+                hasForwardRules,
+                tableAll,
+                Set.copyOf(recursivePredicates),
+                Set.copyOf(tabledPredicates)
+        );
+    }
+
+    private boolean hasInvalidBackwardRuleConsequentCount(List<Rule> rules) {
+        for (Rule rule : rules) {
+            boolean hasTriplePattern = containsTriplePattern(rule.getHead()) || containsTriplePattern(rule.getBody());
+            if (hasTriplePattern && rule.isBackward() && rule.headLength() != 1) {
+                return true;
             }
         }
         return false;
     }
 
-    /**
-     * Extracts the predicate token from a rule clause string like:
-     *   "(?a <https://.../partOf> ?b)" -> "<https://.../partOf>"
-     * Returns null when the clause is not a triple pattern.
-     */
-    private String extractPredicateToken(Object clause) {
-        if (clause == null) return null;
-        String s = clause.toString().trim();
-        if (!s.startsWith("(") || !s.endsWith(")")) return null;
-        String inner = s.substring(1, s.length() - 1).trim();
-        String[] parts = inner.split("\\s+");
-        if (parts.length < 3) return null;
-        return parts[1];
+    private boolean containsTriplePattern(ClauseEntry[] clauses) {
+        for (ClauseEntry clause : clauses) {
+            if (clause instanceof TriplePattern) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private Set<String> extractRulePredicates(ClauseEntry[] clauses) {
+        Set<String> predicates = new LinkedHashSet<>();
+        for (ClauseEntry clause : clauses) {
+            if (!(clause instanceof TriplePattern triplePattern)) {
+                continue;
+            }
+            Node predicate = triplePattern.getPredicate();
+            if (predicate == null || predicate.isVariable()) {
+                continue;
+            }
+            predicates.add(normalizePredicateNode(predicate));
+        }
+        return predicates;
+    }
+
+    private void collectTableDirectivePredicates(ClauseEntry[] clauses, Set<String> tabledPredicates) {
+        for (ClauseEntry clause : clauses) {
+            if (!(clause instanceof Functor functor)) {
+                continue;
+            }
+            if (!"table".equals(functor.getName()) || functor.getArgLength() != 1) {
+                continue;
+            }
+            tabledPredicates.add(normalizePredicateNode(functor.getArgs()[0]));
+        }
+    }
+
+    private boolean containsTableAllDirective(ClauseEntry[] clauses) {
+        for (ClauseEntry clause : clauses) {
+            if (clause instanceof Functor functor && "tableAll".equals(functor.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasUnsafeRecursiveQueryShape(Query query) {
+        if (query.getQueryPattern() == null) {
+            return false;
+        }
+        AtomicBoolean unsafe = new AtomicBoolean(false);
+        ElementWalker.walk(query.getQueryPattern(), new ElementVisitorBase() {
+            @Override
+            public void visit(ElementPathBlock elementPathBlock) {
+                elementPathBlock.patternElts().forEachRemaining(triplePath -> {
+                    if (isUnsafeRecursiveTriplePattern(triplePath)) {
+                        unsafe.set(true);
+                    }
+                });
+            }
+        });
+        return unsafe.get();
+    }
+
+    private boolean isUnsafeRecursiveTriplePattern(TriplePath triplePath) {
+        Node predicate = triplePath.getPredicate();
+        return predicate == null || predicate.isVariable();
+    }
+
+    private String normalizePredicateNode(Node predicate) {
+        if (predicate != null && predicate.isURI()) {
+            return predicate.getURI();
+        }
+        return predicate == null ? "" : normalizePredicateToken(predicate.toString());
+    }
+
+    private String normalizePredicateToken(String token) {
+        String normalized = token == null ? "" : token.trim();
+        if (normalized.startsWith("<") && normalized.endsWith(">") && normalized.length() >= 2) {
+            return normalized.substring(1, normalized.length() - 1);
+        }
+        return normalized;
+    }
+
+    private record PlaygroundRuleAnalysis(
+            boolean hasBackwardRules,
+            boolean hasForwardRules,
+            boolean tableAll,
+            Set<String> recursivePredicates,
+            Set<String> tabledPredicates
+    ) {
+        boolean hasRecursiveRules() {
+            return !recursivePredicates.isEmpty();
+        }
+
+        boolean allRecursivePredicatesTabled() {
+            return tableAll || tabledPredicates.containsAll(recursivePredicates);
+        }
+
+        Set<String> untabledRecursivePredicates() {
+            if (tableAll) {
+                return Set.of();
+            }
+            Set<String> missing = new LinkedHashSet<>(recursivePredicates);
+            missing.removeAll(tabledPredicates);
+            return Set.copyOf(missing);
+        }
     }
 
     /**
