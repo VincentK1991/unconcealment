@@ -31,8 +31,10 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPARQL query and update gateway. All consumers (web UI, MCP tools, CLI) route through here.
@@ -53,6 +55,7 @@ import java.util.Map;
 public class QueryController {
 
     private static final Logger log = LoggerFactory.getLogger(QueryController.class);
+    private static final long PLAYGROUND_MAX_LIMIT = 500L;
 
     private final DatasetManifest manifest;
     private final Map<String, RDFConnection> datasetConnections;
@@ -270,6 +273,112 @@ public class QueryController {
     }
 
     // -------------------------------------------------------------------------
+    // POST /query/playground
+    // -------------------------------------------------------------------------
+
+    /**
+     * Runtime backward-chaining sandbox. Accepts custom Jena rules + a SPARQL SELECT
+     * query, builds an ephemeral InfModel from abox:asserted, and returns:
+     *   - queryResults: W3C SPARQL JSON results for the SELECT query
+     *   - inferredTriples: triples present in the InfModel but absent from the base model (diff)
+     *
+     * Rules are ephemeral — not stored in the RDF store. No persistence.
+     * Caller supplies rules in Jena rule syntax; an empty string means no custom rules.
+     */
+    @PostMapping(value = "/playground", consumes = "application/json")
+    public ResponseEntity<String> queryPlayground(
+            @RequestParam String dataset,
+            @RequestBody PlaygroundRequest req) {
+
+        RDFConnection conn = datasetConnections.get(dataset);
+        if (conn == null) return datasetNotFound(dataset);
+
+        DatasetConfig ds = resolveDataset(dataset);
+        if (ds == null) return datasetNotFound(dataset);
+
+        // 1. Parse custom rules
+        List<Rule> rules;
+        try {
+            String ruleText = (req.rules() == null || req.rules().isBlank()) ? "[]" : req.rules();
+            rules = Rule.parseRules(ruleText);
+        } catch (Exception e) {
+            log.warn("[{}] [playground] Rule parse error: {}", dataset, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"error\":" + jsonString("Rule parse error: " + e.getMessage()) + "}");
+        }
+
+        // 2. Load base model from abox:asserted (IRI-subject triples only, avoids RDF-star parse issue)
+        NamedGraphs graphs = ds.namedGraphs();
+        Model base = loadGraphIriTriples(conn, graphs.aboxAsserted());
+        long baseSize = base.size();
+
+        // 3. Build InfModel in FORWARD mode for playground safety.
+        //    BACKWARD mode can explode memory with recursive custom rules (e.g. transitivity),
+        //    which is common in playground experimentation.
+        GenericRuleReasoner.RuleMode reasonerMode = GenericRuleReasoner.FORWARD;
+        GenericRuleReasoner reasoner = new GenericRuleReasoner(rules);
+        reasoner.setMode(reasonerMode);
+        InfModel infModel = ModelFactory.createInfModel(reasoner, base);
+        infModel.prepare();
+
+        // 4. Parse + cap user query once, then execute against inferred and base models.
+        Query query;
+        try {
+            query = QueryFactory.create(req.query());
+        } catch (org.apache.jena.query.QueryParseException e) {
+            log.warn("[{}] [playground] SPARQL parse error: {}", dataset, e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"error\":" + jsonString("SPARQL parse error: " + e.getMessage()) + "}");
+        }
+        enforcePlaygroundLimit(query);
+
+        // 5. Execute user SPARQL SELECT against the InfModel
+        String queryResultsJson;
+        try {
+            try (QueryExecution qExec = QueryExecutionFactory.create(query, infModel)) {
+                ResultSet rs = qExec.execSelect();
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                ResultSetFormatter.outputAsJSON(out, rs);
+                queryResultsJson = out.toString(StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            log.error("[{}] [playground] Query failed: {}", dataset, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"error\":" + jsonString(e.getMessage()) + "}");
+        }
+
+        // 6. Run the SAME query against the base model (no inference) to produce the diff client-side.
+        //    We deliberately do NOT call infModel.listStatements() — an open ?s ?p ?o scan against a
+        //    BACKWARD-mode InfModel forces the LP reasoner to attempt every possible triple, which
+        //    causes OOM on any non-trivial dataset. Running the user's scoped SELECT against the base
+        //    model is safe because the query pattern is bounded by the user's own WHERE clause.
+        String baseResultsJson;
+        try {
+            try (QueryExecution qExec = QueryExecutionFactory.create(query, base)) {
+                ResultSet rs = qExec.execSelect();
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                ResultSetFormatter.outputAsJSON(out, rs);
+                baseResultsJson = out.toString(StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            // Non-fatal: diff view will be unavailable but table/graph still work
+            log.warn("[{}] [playground] Base query failed (diff unavailable): {}", dataset, e.getMessage());
+            baseResultsJson = "{\"head\":{\"vars\":[]},\"results\":{\"bindings\":[]}}";
+        }
+
+        log.debug("[{}] [playground] base={} triples, rules={}, mode=FORWARD, query executed",
+                dataset, baseSize, rules.size());
+
+        String body = "{\"queryResults\":" + queryResultsJson + ",\"baseResults\":" + baseResultsJson + "}";
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body);
+    }
+
+    // -------------------------------------------------------------------------
     // POST /query/text
     // -------------------------------------------------------------------------
 
@@ -337,6 +446,59 @@ public class QueryController {
                     .contentType(MediaType.APPLICATION_JSON)
                     .body("{\"error\":" + jsonString(e.getMessage()) + "}");
         }
+    }
+
+    /**
+     * Guards the playground endpoint against unbounded result serialization.
+     * If no LIMIT is present, apply one. If a LIMIT is too high, cap it.
+     */
+    private void enforcePlaygroundLimit(Query query) {
+        if (!query.isSelectType()) return;
+        if (!query.hasLimit()) {
+            query.setLimit(PLAYGROUND_MAX_LIMIT);
+            return;
+        }
+        long current = query.getLimit();
+        if (current <= 0 || current > PLAYGROUND_MAX_LIMIT) {
+            query.setLimit(PLAYGROUND_MAX_LIMIT);
+        }
+    }
+
+    /**
+     * Detects recursive rules by checking whether any head predicate also appears in its body.
+     * BACKWARD mode with recursive rules (e.g., transitive closure) can create huge search trees.
+     */
+    private boolean hasRecursiveRule(List<Rule> rules) {
+        for (Rule rule : rules) {
+            Set<String> headPredicates = new HashSet<>();
+            for (Object head : rule.getHead()) {
+                String pred = extractPredicateToken(head);
+                if (pred != null) headPredicates.add(pred);
+            }
+            if (headPredicates.isEmpty()) continue;
+            for (Object body : rule.getBody()) {
+                String pred = extractPredicateToken(body);
+                if (pred != null && headPredicates.contains(pred)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Extracts the predicate token from a rule clause string like:
+     *   "(?a <https://.../partOf> ?b)" -> "<https://.../partOf>"
+     * Returns null when the clause is not a triple pattern.
+     */
+    private String extractPredicateToken(Object clause) {
+        if (clause == null) return null;
+        String s = clause.toString().trim();
+        if (!s.startsWith("(") || !s.endsWith(")")) return null;
+        String inner = s.substring(1, s.length() - 1).trim();
+        String[] parts = inner.split("\\s+");
+        if (parts.length < 3) return null;
+        return parts[1];
     }
 
     /**

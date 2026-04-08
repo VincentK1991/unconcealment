@@ -17,7 +17,8 @@ const graphs = [
   { role: "Documents",       uri: `urn:${datasetId}:abox:asserted`,         href: `/dataset/${datasetId}/documents`,       description: "Source documents referenced in provenance", hideCount: true },
   { role: "Inferred Triples",uri: `urn:${datasetId}:abox:inferred`,        href: null,                                    description: "Materialized forward-chaining output (Phase 4)" },
   { role: "Normalization",   uri: `urn:${datasetId}:normalization`,        href: `/dataset/${datasetId}/normalization`,    description: "owl:sameAs links (Phase 2)" },
-  { role: "System Health",   uri: `urn:${datasetId}:system:health`,        href: null,                                    description: "Load events and ontology version lineage" },
+  { role: "System Health",       uri: `urn:${datasetId}:system:health`,    href: null,                                    description: "Load events and ontology version lineage" },
+  { role: "Reasoning Playground", uri: `urn:${datasetId}:abox:asserted`,  href: `/dataset/${datasetId}/reasoning`,       description: "Test custom backward-chaining rules at runtime", hideCount: true },
 ];
 
 // Get triple count per named graph

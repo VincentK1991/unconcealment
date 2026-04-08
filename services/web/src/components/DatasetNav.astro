@@ -1,17 +1,18 @@
 ---
 interface Props {
   datasetId: string;
-  current: "overview" | "entities" | "documents" | "ontology" | "rules" | "normalization";
+  current: "overview" | "entities" | "documents" | "ontology" | "rules" | "normalization" | "reasoning";
 }
 const { datasetId, current } = Astro.props;
 
 const tabs = [
-  { id: "overview",  label: "Overview",       href: `/dataset/${datasetId}` },
-  { id: "entities",  label: "Entities",        href: `/dataset/${datasetId}/entities` },
-  { id: "documents", label: "Documents",       href: `/dataset/${datasetId}/documents` },
-  { id: "ontology",  label: "Ontology",        href: `/dataset/${datasetId}/ontology` },
-  { id: "rules",          label: "Rules",          href: `/dataset/${datasetId}/rules` },
-  { id: "normalization", label: "Normalization",  href: `/dataset/${datasetId}/normalization` },
+  { id: "overview",      label: "Overview",      href: `/dataset/${datasetId}` },
+  { id: "entities",      label: "Entities",      href: `/dataset/${datasetId}/entities` },
+  { id: "documents",     label: "Documents",     href: `/dataset/${datasetId}/documents` },
+  { id: "ontology",      label: "Ontology",      href: `/dataset/${datasetId}/ontology` },
+  { id: "rules",         label: "Rules",         href: `/dataset/${datasetId}/rules` },
+  { id: "normalization", label: "Normalization", href: `/dataset/${datasetId}/normalization` },
+  { id: "reasoning",     label: "Reasoning",     href: `/dataset/${datasetId}/reasoning` },
 ];
 ---
 
