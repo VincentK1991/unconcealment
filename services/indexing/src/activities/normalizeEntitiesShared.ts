@@ -10,6 +10,7 @@
 export const ONTOLOGY_NS  = "https://kg.unconcealment.io/ontology/";
 export const OWL_SAME_AS  = "http://www.w3.org/2002/07/owl#sameAs";
 export const XSD_DATETIME = "http://www.w3.org/2001/XMLSchema#dateTime";
+export const IS_CANONICAL = `${ONTOLOGY_NS}isCanonical`;
 
 // ─── Handoff type (rule-based → LLM activity) ────────────────────────────────
 
@@ -129,6 +130,90 @@ export async function writeSameAsPairs(
     datasetId,
     `PREFIX owl: <http://www.w3.org/2002/07/owl#>\n\nINSERT DATA {\n  GRAPH <${namedGraph}> {\n${triples}\n  }\n}`,
   );
+}
+
+// ─── Canonical election ───────────────────────────────────────────────────────
+
+interface PairRow { s: { value: string }; o: { value: string } }
+
+/**
+ * After new sameAs pairs are written, re-elects the canonical entity for every
+ * cluster that contains at least one IRI from `touchedIris` (incremental).
+ *
+ * Election rule: highest in-degree (most often appearing as owl:sameAs ?object).
+ * Tie-break: lexicographically first IRI.
+ *
+ * Writes `ex:isCanonical true` to the normalization graph for each elected
+ * canonical, replacing any previous marker for the same cluster.
+ */
+export async function electAndWriteCanonicals(
+  backendUrl:  string,
+  datasetId:   string,
+  touchedIris: Set<string>,
+): Promise<void> {
+  if (touchedIris.size === 0) return;
+
+  const namedGraph = `urn:${datasetId}:normalization`;
+
+  // Fetch all non-self sameAs pairs from the normalization graph
+  const data = await sparqlQuery(backendUrl, datasetId, `
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+SELECT ?s ?o WHERE {
+  GRAPH <${namedGraph}> {
+    ?s owl:sameAs ?o .
+    FILTER(?s != ?o)
+  }
+}`.trim());
+
+  const pairs = (data.results?.bindings ?? []) as PairRow[];
+
+  // Build union-find + in-degree over all pairs
+  const parent   = new Map<string, string>();
+  const inDegree = new Map<string, number>();
+
+  function find(x: string): string {
+    if (!parent.has(x)) parent.set(x, x);
+    const p = parent.get(x)!;
+    if (p !== x) { const root = find(p); parent.set(x, root); return root; }
+    return x;
+  }
+  function union(a: string, b: string): void { parent.set(find(a), find(b)); }
+
+  for (const pair of pairs) {
+    union(pair.s.value, pair.o.value);
+    inDegree.set(pair.o.value, (inDegree.get(pair.o.value) ?? 0) + 1);
+    if (!inDegree.has(pair.s.value)) inDegree.set(pair.s.value, 0);
+  }
+
+  // Group IRIs by cluster root
+  const clusterMap = new Map<string, Set<string>>();
+  for (const iri of inDegree.keys()) {
+    const root = find(iri);
+    if (!clusterMap.has(root)) clusterMap.set(root, new Set());
+    clusterMap.get(root)!.add(iri);
+  }
+
+  // Process only clusters that contain at least one touched IRI (incremental)
+  for (const members of clusterMap.values()) {
+    if (![...members].some(m => touchedIris.has(m))) continue;
+
+    const sorted = Array.from(members).sort((a, b) => {
+      const diff = (inDegree.get(b) ?? 0) - (inDegree.get(a) ?? 0);
+      return diff !== 0 ? diff : a.localeCompare(b);
+    });
+    const canonical    = sorted[0]!;
+    const memberValues = sorted.map(m => `<${m}>`).join(" ");
+
+    // Remove old canonical marker for any member of this cluster, then set new one
+    await sparqlUpdate(backendUrl, datasetId, `
+PREFIX ex: <${ONTOLOGY_NS}>
+DELETE { GRAPH <${namedGraph}> { ?m ex:isCanonical true } }
+WHERE  { GRAPH <${namedGraph}> { VALUES ?m { ${memberValues} } ?m ex:isCanonical true } }`.trim());
+
+    await sparqlUpdate(backendUrl, datasetId, `
+PREFIX ex: <${ONTOLOGY_NS}>
+INSERT DATA { GRAPH <${namedGraph}> { <${canonical}> ex:isCanonical true } }`.trim());
+  }
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────

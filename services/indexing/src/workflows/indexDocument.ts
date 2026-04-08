@@ -177,13 +177,29 @@ export async function indexDocument(input: IndexDocumentInput): Promise<void> {
       datasetId:     input.datasetId,
       indexingRunId,
     });
+    console.log(
+      `[normalization:rule-based] dataset=${input.datasetId} run=${indexingRunId}`,
+      `total=${ruleBasedResult.totalEntities}`,
+      `exact=${ruleBasedResult.exactMatches}`,
+      `highConf=${ruleBasedResult.highConfidenceMatches}`,
+      `sentToLlm=${ruleBasedResult.sentToLlm}`,
+      `noCandidate=${ruleBasedResult.noCandidate}`,
+      `highPairsWritten=${ruleBasedResult.highPairsAsserted}`,
+    );
+
     // Only fire the LLM step if the rule-based step found medium-confidence pairs.
     if (ruleBasedResult.llmCandidates.length > 0) {
-      await normalizeEntitiesLlm({
+      const llmResult = await normalizeEntitiesLlm({
         datasetId:     input.datasetId,
         indexingRunId,
         llmCandidates: ruleBasedResult.llmCandidates,
       });
+      console.log(
+        `[normalization:llm] dataset=${input.datasetId} run=${indexingRunId}`,
+        `accepted=${llmResult.llmAccepted}`,
+        `rejected=${llmResult.llmRejected}`,
+        `pairsWritten=${llmResult.llmPairsAsserted}`,
+      );
     }
     normalizationDone = true;
   } catch (error) {

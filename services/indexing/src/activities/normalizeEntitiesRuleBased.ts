@@ -7,6 +7,7 @@ import {
   type SparqlResults,
   ONTOLOGY_NS,
   OWL_SAME_AS,
+  electAndWriteCanonicals,
   escapeSparql,
   sparqlQuery,
   sparqlUpdate,
@@ -23,10 +24,20 @@ export interface NormalizeEntitiesRuleBasedInput {
 }
 
 export interface NormalizeEntitiesRuleBasedOutput {
-  /** Number of high-confidence sameAs pairs written directly by this step. */
-  highPairsAsserted: number;
+  /** Number of high-confidence sameAs pairs written directly by this step (includes intra-batch pairs). */
+  highPairsAsserted:     number;
   /** Medium-confidence pairs to be judged by the LLM step. */
-  llmCandidates:     LlmCandidate[];
+  llmCandidates:         LlmCandidate[];
+  /** Total new entities examined in this run. */
+  totalEntities:         number;
+  /** Pairs matched by exact label (score === 1.0), subset of highConfidenceMatches. */
+  exactMatches:          number;
+  /** Pairs matched at high confidence (≥ 0.92), includes exact matches. */
+  highConfidenceMatches: number;
+  /** Number of candidates sent to the LLM step (= llmCandidates.length). */
+  sentToLlm:             number;
+  /** Entities for which the graph returned zero candidates. */
+  noCandidate:           number;
 }
 
 // ─── Activity ────────────────────────────────────────────────────────────────
@@ -53,13 +64,45 @@ export async function normalizeEntitiesRuleBased(
 
   const newEntities = await fetchNewEntities(backendUrl, input.datasetId, input.indexingRunId, graphAsserted);
   if (newEntities.length === 0) {
-    return { highPairsAsserted: 0, llmCandidates: [] };
+    return {
+      highPairsAsserted: 0, llmCandidates: [],
+      totalEntities: 0, exactMatches: 0, highConfidenceMatches: 0, sentToLlm: 0, noCandidate: 0,
+    };
   }
 
   const newEntityIris    = new Set(newEntities.map(e => e.iri));
   const highPairs:        SameAsPair[]    = [];
   const llmCandidates:   LlmCandidate[]  = [];
 
+  // ── Intra-batch dedup ──────────────────────────────────────────────────────
+  // Pairwise Jaro-Winkler over entities extracted in this same indexing run.
+  // Starting j at i+1 avoids self-comparisons and symmetric duplicates without
+  // needing an explicit IRI ordering check.
+  const { highConfidenceThreshold, lowConfidenceThreshold } = PIPELINE_CONSTANTS.normalization;
+  let exactMatches          = 0;
+  let highConfidenceMatches = 0;
+  let noCandidate           = 0;
+
+  for (let i = 0; i < newEntities.length; i++) {
+    for (let j = i + 1; j < newEntities.length; j++) {
+      const a     = newEntities[i]!;
+      const b     = newEntities[j]!;
+      if (a.iri === b.iri) continue; // same entity minted from multiple chunks — skip self-loop
+      const score = jaroWinkler(normalizeLabel(a.label), normalizeLabel(b.label));
+      if (score >= highConfidenceThreshold) {
+        if (score === 1.0) exactMatches++;
+        highConfidenceMatches++;
+        highPairs.push({
+          subjectIri:          a.iri,
+          objectIri:           b.iri,
+          confidence:          score,
+          normalizationMethod: score === 1.0 ? "exact-label" : "jaro-winkler",
+        });
+      }
+    }
+  }
+
+  // ── Graph-lookup normalization ─────────────────────────────────────────────
   for (const entity of newEntities) {
     const candidates = await fetchCandidatesByLabel(
       backendUrl,
@@ -69,17 +112,24 @@ export async function normalizeEntitiesRuleBased(
       newEntityIris,
     );
 
+    if (candidates.length === 0) {
+      noCandidate++;
+      continue;
+    }
+
     for (const candidate of candidates) {
       const score = jaroWinkler(normalizeLabel(entity.label), normalizeLabel(candidate.label));
 
-      if (score >= PIPELINE_CONSTANTS.normalization.highConfidenceThreshold) {
+      if (score >= highConfidenceThreshold) {
+        if (score === 1.0) exactMatches++;
+        highConfidenceMatches++;
         highPairs.push({
           subjectIri:          entity.iri,
           objectIri:           candidate.iri,
           confidence:          score,
           normalizationMethod: score === 1.0 ? "exact-label" : "jaro-winkler",
         });
-      } else if (score >= PIPELINE_CONSTANTS.normalization.lowConfidenceThreshold) {
+      } else if (score >= lowConfidenceThreshold) {
         llmCandidates.push({
           newIri:               entity.iri,
           newLabel:             entity.label,
@@ -95,10 +145,16 @@ export async function normalizeEntitiesRuleBased(
   }
 
   await writeSameAsPairs(backendUrl, input.datasetId, input.indexingRunId, graphNorm, highPairs);
+  await electAndWriteCanonicals(backendUrl, input.datasetId, newEntityIris);
 
   return {
-    highPairsAsserted: highPairs.length,
+    highPairsAsserted:     highPairs.length,
     llmCandidates,
+    totalEntities:         newEntities.length,
+    exactMatches,
+    highConfidenceMatches,
+    sentToLlm:             llmCandidates.length,
+    noCandidate,
   };
 }
 
@@ -117,6 +173,33 @@ export async function deleteNormalization(input: {
   const namedGraph = `urn:${input.datasetId}:normalization`;
   const sameAs     = `<${OWL_SAME_AS}>`;
 
+  // Collect affected IRIs before deletion so we can re-elect canonicals afterward
+  const affectedData = await sparqlQuery(backendUrl, input.datasetId, `
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+SELECT ?s ?o WHERE {
+  GRAPH <${namedGraph}> {
+    ?s ${sameAs} ?o .
+    << ?s ${sameAs} ?o >> <${ONTOLOGY_NS}indexingRun> "${escapeSparql(input.indexingRunId)}" .
+  }
+}`.trim());
+
+  const affectedIris = new Set<string>();
+  for (const row of affectedData.results?.bindings ?? []) {
+    const r = row as unknown as { s: { value: string }; o: { value: string } };
+    if (r.s?.value) affectedIris.add(r.s.value);
+    if (r.o?.value) affectedIris.add(r.o.value);
+  }
+
+  // Delete old canonical markers for affected IRIs before removing the pairs
+  if (affectedIris.size > 0) {
+    const memberValues = [...affectedIris].map(iri => `<${iri}>`).join(" ");
+    await sparqlUpdate(backendUrl, input.datasetId, `
+PREFIX ex: <${ONTOLOGY_NS}>
+DELETE { GRAPH <${namedGraph}> { ?m ex:isCanonical true } }
+WHERE  { GRAPH <${namedGraph}> { VALUES ?m { ${memberValues} } ?m ex:isCanonical true } }`.trim());
+  }
+
+  // Delete the sameAs pairs and their provenance annotations
   await sparqlUpdate(
     backendUrl,
     input.datasetId,
@@ -136,6 +219,11 @@ WHERE {
   }
 }`,
   );
+
+  // Re-elect canonicals for clusters that still have surviving members
+  if (affectedIris.size > 0) {
+    await electAndWriteCanonicals(backendUrl, input.datasetId, affectedIris);
+  }
 }
 
 // ─── Candidate fetching ───────────────────────────────────────────────────────
@@ -267,9 +355,15 @@ function jaroWinkler(a: string, b: string): number {
 }
 
 /**
- * Escapes characters with special meaning in Lucene query syntax.
+ * Escapes characters with special meaning in Lucene query syntax, producing a
+ * string safe to embed inside a SPARQL string literal.
+ *
+ * Lucene escaping prepends `\` before special chars (e.g. `-` → `\-`).
+ * SPARQL string literals treat `\` as an escape prefix, so each Lucene `\`
+ * must be doubled to `\\` so the SPARQL parser delivers a single `\` to Lucene.
+ *
  * https://lucene.apache.org/core/9_0_0/queryparser/org/apache/lucene/queryparser/classic/package-summary.html
  */
 function escapeLucene(value: string): string {
-  return value.replace(/[+\-&|!(){}[\]^"~*?:\\/]/g, "\\$&");
+  return value.replace(/[+\-&|!(){}[\]^"~*?:\\/]/g, "\\\\$&");
 }

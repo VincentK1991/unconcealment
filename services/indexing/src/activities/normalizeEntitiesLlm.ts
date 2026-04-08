@@ -5,6 +5,7 @@ import { PIPELINE_CONSTANTS } from "../constants/pipeline";
 import {
   type LlmCandidate,
   type SameAsPair,
+  electAndWriteCanonicals,
   localName,
   writeSameAsPairs,
 } from "./normalizeEntitiesShared";
@@ -23,6 +24,10 @@ export interface NormalizeEntitiesLlmInput {
 export interface NormalizeEntitiesLlmOutput {
   /** Number of sameAs pairs accepted by the LLM and written to the graph. */
   llmPairsAsserted: number;
+  /** Candidates accepted by the LLM judge (isSameEntity=true, confidence ≥ threshold). */
+  llmAccepted:      number;
+  /** Candidates not accepted (rejected, low-confidence, or batch skipped on LLM error). */
+  llmRejected:      number;
 }
 
 // ─── Zod schema for structured output ────────────────────────────────────────
@@ -56,7 +61,7 @@ export async function normalizeEntitiesLlm(
   input: NormalizeEntitiesLlmInput,
 ): Promise<NormalizeEntitiesLlmOutput> {
   if (input.llmCandidates.length === 0) {
-    return { llmPairsAsserted: 0 };
+    return { llmPairsAsserted: 0, llmAccepted: 0, llmRejected: 0 };
   }
 
   const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8080";
@@ -71,7 +76,15 @@ export async function normalizeEntitiesLlm(
   }
 
   await writeSameAsPairs(backendUrl, input.datasetId, input.indexingRunId, graphNorm, allPairs);
-  return { llmPairsAsserted: allPairs.length };
+  if (allPairs.length > 0) {
+    const touchedIris = new Set(allPairs.flatMap(p => [p.subjectIri, p.objectIri]));
+    await electAndWriteCanonicals(backendUrl, input.datasetId, touchedIris);
+  }
+  return {
+    llmPairsAsserted: allPairs.length,
+    llmAccepted:      allPairs.length,
+    llmRejected:      input.llmCandidates.length - allPairs.length,
+  };
 }
 
 // ─── LLM judge ───────────────────────────────────────────────────────────────

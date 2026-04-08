@@ -14,9 +14,9 @@ const graphs = [
   { role: "Forward Rules",   uri: `urn:${datasetId}:tbox:rules:forward`,   href: `/dataset/${datasetId}/rules#forward`,   description: "Materialized RETE rules" },
   { role: "Backward Rules",  uri: `urn:${datasetId}:tbox:rules:backward`,  href: `/dataset/${datasetId}/rules#backward`,  description: "Query-time LP rules" },
   { role: "Asserted Triples",uri: `urn:${datasetId}:abox:asserted`,        href: `/dataset/${datasetId}/entities`,        description: "Extracted entities and relationships" },
-  { role: "Documents",       uri: `urn:${datasetId}:abox:asserted`,         href: `/dataset/${datasetId}/documents`,       description: "Source documents referenced in provenance" },
+  { role: "Documents",       uri: `urn:${datasetId}:abox:asserted`,         href: `/dataset/${datasetId}/documents`,       description: "Source documents referenced in provenance", hideCount: true },
   { role: "Inferred Triples",uri: `urn:${datasetId}:abox:inferred`,        href: null,                                    description: "Materialized forward-chaining output (Phase 4)" },
-  { role: "Normalization",   uri: `urn:${datasetId}:normalization`,        href: null,                                    description: "owl:sameAs links (Phase 2)" },
+  { role: "Normalization",   uri: `urn:${datasetId}:normalization`,        href: `/dataset/${datasetId}/normalization`,    description: "owl:sameAs links (Phase 2)" },
   { role: "System Health",   uri: `urn:${datasetId}:system:health`,        href: null,                                    description: "Load events and ontology version lineage" },
 ];
 
@@ -83,7 +83,7 @@ try {
           <a class="card" href={g.href}>
             <p class="card__role">
               {g.role}
-              {count !== undefined && <span class="card__count">{count.toLocaleString()}</span>}
+              {!g.hideCount && count !== undefined && <span class="card__count">{count.toLocaleString()}</span>}
             </p>
             <p class="card__uri">{g.uri}</p>
             <p class="card__desc">{g.description}</p>

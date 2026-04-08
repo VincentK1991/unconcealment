@@ -55,6 +55,7 @@
     a text:EntityMap ;
     text:entityField "uri" ;
     text:defaultField "label" ;
+    text:graphField  "graph" ;
     text:map (
         [ text:field "label"   ; text:predicate rdfs:label ]
         [ text:field "comment" ; text:predicate rdfs:comment ]
@@ -93,6 +94,7 @@
     a text:EntityMap ;
     text:entityField "uri" ;
     text:defaultField "label" ;
+    text:graphField  "graph" ;
     text:map (
         [ text:field "label"   ; text:predicate rdfs:label ]
         [ text:field "comment" ; text:predicate rdfs:comment ]

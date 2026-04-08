@@ -8,6 +8,11 @@ if (!datasetId) return Astro.redirect("/");
 
 const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
 
+const PAGE_SIZE = 25;
+const page = Math.max(1, parseInt(Astro.url.searchParams.get("page") ?? "1", 10));
+const q    = (Astro.url.searchParams.get("q") ?? "").trim();
+const offset = (page - 1) * PAGE_SIZE;
+
 interface EntityBinding {
   entity: { value: string };
   label?: { value: string };
@@ -16,6 +21,13 @@ interface EntityBinding {
 }
 
 const aboxAsserted = `urn:${datasetId}:abox:asserted`;
+
+// Escape a string for safe SPARQL literal injection (no external input reaches a URI position)
+const escapeSparql = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+
+const searchFilter = q
+  ? `FILTER(CONTAINS(LCASE(STR(?label)), LCASE("${escapeSparql(q)}")))`
+  : "";
 
 const sparql = `
   PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -28,33 +40,84 @@ const sparql = `
       OPTIONAL { ?entity rdfs:label ?label }
       OPTIONAL { ?entity ex:slug ?slug }
       FILTER(?type != owl:NamedIndividual)
+      ${searchFilter}
     }
   }
   ORDER BY ?label
-  LIMIT 100
+  LIMIT ${PAGE_SIZE}
+  OFFSET ${offset}
+`;
+
+const countSparql = `
+  PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+  PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+  PREFIX owl:  <http://www.w3.org/2002/07/owl#>
+  SELECT (COUNT(DISTINCT ?entity) AS ?total) WHERE {
+    GRAPH <${aboxAsserted}> {
+      ?entity a ?type .
+      OPTIONAL { ?entity rdfs:label ?label }
+      FILTER(?type != owl:NamedIndividual)
+      ${searchFilter}
+    }
+  }
 `;
 
 let entities: EntityBinding[] = [];
+let total = 0;
 let error: string | null = null;
 
 try {
-  const res = await fetch(`${BACKEND_URL}/query/raw?dataset=${encodeURIComponent(datasetId)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/sparql-query" },
-    body: sparql,
-  });
-  if (res.ok) {
-    const data = await res.json() as { results?: { bindings?: EntityBinding[] } };
+  const [entitiesRes, countRes] = await Promise.all([
+    fetch(`${BACKEND_URL}/query/raw?dataset=${encodeURIComponent(datasetId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/sparql-query" },
+      body: sparql,
+    }),
+    fetch(`${BACKEND_URL}/query/raw?dataset=${encodeURIComponent(datasetId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/sparql-query" },
+      body: countSparql,
+    }),
+  ]);
+  if (entitiesRes.ok) {
+    const data = await entitiesRes.json() as { results?: { bindings?: EntityBinding[] } };
     entities = data.results?.bindings ?? [];
   } else {
-    error = `Backend returned ${res.status}`;
+    error = `Backend returned ${entitiesRes.status}`;
+  }
+  if (countRes.ok) {
+    const countData = await countRes.json() as { results?: { bindings?: Array<{ total?: { value: string } }> } };
+    total = parseInt(countData.results?.bindings?.[0]?.total?.value ?? "0", 10);
   }
 } catch {
   error = "Backend unavailable";
 }
 
-const shortLabel = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
+const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+const shortLabel    = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
 const entityIdFromIri = (iri: string) => iri.split("/").pop() ?? iri;
+
+const pageUrl = (p: number) => {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  params.set("page", String(p));
+  return `?${params.toString()}`;
+};
+
+// Build pagination items in frontmatter to avoid TypeScript generics in JSX
+type PageItem = { kind: "page"; n: number } | { kind: "ellipsis" };
+const paginationItems: PageItem[] = [];
+if (totalPages > 1) {
+  const pageNums = Array.from({ length: totalPages }, (_, i) => i + 1)
+    .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 2);
+  for (let i = 0; i < pageNums.length; i++) {
+    if (i > 0 && pageNums[i] - pageNums[i - 1] > 1) {
+      paginationItems.push({ kind: "ellipsis" });
+    }
+    paginationItems.push({ kind: "page", n: pageNums[i] });
+  }
+}
 ---
 
 <!doctype html>
@@ -69,6 +132,24 @@ const entityIdFromIri = (iri: string) => iri.split("/").pop() ?? iri;
       .sub  { color: #555; margin: 0 0 1.5rem; font-size: 0.85rem; font-family: monospace; }
       .error{ color: #c00; background: #fff0f0; border: 1px solid #fcc; padding: 0.75rem 1rem; border-radius: 6px; margin: 1rem 0; }
       .empty{ color: #888; margin-top: 2rem; font-size: 0.9rem; }
+
+      /* Search bar */
+      .search-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+      .search-row input[type="search"] {
+        flex: 1; padding: 0.45rem 0.75rem; border: 1px solid #ccc; border-radius: 6px;
+        font-size: 0.9rem; outline: none;
+      }
+      .search-row input[type="search"]:focus { border-color: #1a6bb5; box-shadow: 0 0 0 2px #c8dcf5; }
+      .search-row button {
+        padding: 0.45rem 1rem; background: #1a6bb5; color: #fff; border: none;
+        border-radius: 6px; font-size: 0.9rem; cursor: pointer;
+      }
+      .search-row button:hover { background: #155a9a; }
+      .search-clear { align-self: center; font-size: 0.85rem; color: #888; text-decoration: none; margin-left: 0.25rem; }
+      .search-clear:hover { color: #333; }
+      .result-meta { font-size: 0.8rem; color: #666; margin-bottom: 0.5rem; }
+
+      /* Table */
       table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
       th    { text-align: left; border-bottom: 2px solid #ccc; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: #444; text-transform: uppercase; letter-spacing: 0.04em; }
       td    { padding: 0.45rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.875rem; vertical-align: top; }
@@ -77,44 +158,103 @@ const entityIdFromIri = (iri: string) => iri.split("/").pop() ?? iri;
       a.el  { color: #1a6bb5; text-decoration: none; }
       a.el:hover { text-decoration: underline; }
       .badge{ display: inline-block; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; margin-left: 0.4rem; }
+
+      /* Pagination */
+      .pagination { display: flex; align-items: center; gap: 0.4rem; margin-top: 1.25rem; flex-wrap: wrap; }
+      .pagination a, .pagination span {
+        display: inline-block; padding: 0.3rem 0.65rem; border-radius: 5px;
+        font-size: 0.85rem; border: 1px solid #ddd; text-decoration: none; color: #333;
+      }
+      .pagination a:hover { background: #f0f5ff; border-color: #1a6bb5; }
+      .pagination .current { background: #1a6bb5; color: #fff; border-color: #1a6bb5; font-weight: 600; }
+      .pagination .disabled { color: #bbb; border-color: #eee; pointer-events: none; }
+      .pagination .ellipsis { border: none; color: #999; padding: 0.3rem 0.2rem; }
     </style>
   </head>
   <body>
     <DatasetNav datasetId={datasetId} current="entities" />
     <h1>
       Entities
-      {entities.length > 0 && <span class="badge">{entities.length}</span>}
+      {total > 0 && <span class="badge">{total.toLocaleString()}</span>}
     </h1>
     <p class="sub">{aboxAsserted}</p>
 
     {error && <div class="error"><strong>Query failed:</strong> {error}</div>}
 
-    {!error && entities.length === 0 && (
+    <!-- Search bar -->
+    <form class="search-row" method="get" action="">
+      <input
+        type="search"
+        name="q"
+        value={q}
+        placeholder="Search entities by label…"
+        autocomplete="off"
+      />
+      <button type="submit">Search</button>
+      {q && <a class="search-clear" href={`?page=1`}>Clear</a>}
+    </form>
+
+    {!error && entities.length === 0 && !q && (
       <p class="empty">
         No entities found. Run <code>just trigger {datasetId}</code> to index a test document.
       </p>
     )}
 
+    {!error && entities.length === 0 && q && (
+      <p class="empty">No entities match <strong>"{q}"</strong>.</p>
+    )}
+
     {entities.length > 0 && (
-      <table>
-        <thead>
-          <tr><th>Label</th><th>Type</th><th>IRI</th></tr>
-        </thead>
-        <tbody>
-          {entities.map(row => {
-            const entityId = entityIdFromIri(row.entity.value);
-            const label = row.label?.value ?? row.slug?.value ?? shortLabel(row.entity.value);
-            const type  = row.type ? shortLabel(row.type.value) : "—";
-            return (
-              <tr>
-                <td><a class="el" href={`/entity/${encodeURIComponent(entityId)}?dataset=${encodeURIComponent(datasetId)}`}>{label}</a></td>
-                <td class="type">{type}</td>
-                <td class="iri">{row.entity.value}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <>
+        <p class="result-meta">
+          {q
+            ? `${total.toLocaleString()} result${total !== 1 ? "s" : ""} for "${q}" — page ${page} of ${totalPages}`
+            : `Page ${page} of ${totalPages} (${total.toLocaleString()} total)`
+          }
+        </p>
+        <table>
+          <thead>
+            <tr><th>Label</th><th>Type</th><th>IRI</th></tr>
+          </thead>
+          <tbody>
+            {entities.map(row => {
+              const entityId = entityIdFromIri(row.entity.value);
+              const label = row.label?.value ?? row.slug?.value ?? shortLabel(row.entity.value);
+              const type  = row.type ? shortLabel(row.type.value) : "—";
+              return (
+                <tr>
+                  <td><a class="el" href={`/entity/${encodeURIComponent(datasetId)}/${encodeURIComponent(entityId)}`}>{label}</a></td>
+                  <td class="type">{type}</td>
+                  <td class="iri">{row.entity.value}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+
+        <!-- Pagination -->
+        {paginationItems.length > 0 && (
+          <nav class="pagination" aria-label="Pagination">
+            {page > 1
+              ? <a href={pageUrl(page - 1)}>&#8249; Prev</a>
+              : <span class="disabled">&#8249; Prev</span>
+            }
+
+            {paginationItems.map(item =>
+              item.kind === "ellipsis"
+                ? <span class="ellipsis">&#8230;</span>
+                : item.n === page
+                  ? <span class="current">{item.n}</span>
+                  : <a href={pageUrl(item.n)}>{item.n}</a>
+            )}
+
+            {page < totalPages
+              ? <a href={pageUrl(page + 1)}>Next &#8250;</a>
+              : <span class="disabled">Next &#8250;</span>
+            }
+          </nav>
+        )}
+      </>
     )}
   </body>
 </html>
