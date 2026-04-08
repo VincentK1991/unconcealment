@@ -3,6 +3,7 @@ package com.unconcealment.backend.controller;
 import com.unconcealment.backend.model.DatasetManifest;
 import com.unconcealment.backend.model.DatasetManifest.DatasetConfig;
 import com.unconcealment.backend.model.DatasetManifest.NamedGraphs;
+import com.unconcealment.backend.service.MaterializationService;
 import org.apache.jena.query.Query;
 import org.apache.jena.query.QueryExecution;
 import org.apache.jena.query.QueryFactory;
@@ -51,11 +52,14 @@ public class IngestController {
 
     private final DatasetManifest manifest;
     private final Map<String, RDFConnection> datasetConnections;
+    private final MaterializationService materializationService;
 
     public IngestController(DatasetManifest manifest,
-                            Map<String, RDFConnection> datasetConnections) {
+                            Map<String, RDFConnection> datasetConnections,
+                            MaterializationService materializationService) {
         this.manifest = manifest;
         this.datasetConnections = datasetConnections;
+        this.materializationService = materializationService;
     }
 
     // -------------------------------------------------------------------------
@@ -261,6 +265,40 @@ public class IngestController {
                     .body("{\"status\":\"ok\",\"triplesAsserted\":" + triplesAsserted + "}");
         } catch (Exception e) {
             log.error("[{}] SPARQL INSERT failed: {}", dataset, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"error\":" + jsonString(e.getMessage()) + "}");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /ingest/normalize
+    // -------------------------------------------------------------------------
+
+    /**
+     * Triggers sameAs materialization for the given dataset using Jena's forward-chaining
+     * rule engine. Loads the normalization graph + abox:asserted, applies the four hardcoded
+     * sameAs rules (symmetry, transitivity, prop-fwd, prop-bwd), and writes the deduced
+     * triples to abox:inferred (replacing any previous content).
+     *
+     * Called by the TypeScript indexing pipeline after both normalization steps complete.
+     * Safe to call multiple times — abox:inferred is fully replaced on each invocation.
+     */
+    @PostMapping("/normalize")
+    public ResponseEntity<String> normalize(@RequestParam String dataset) {
+        DatasetConfig ds = resolveDataset(dataset);
+        if (ds == null) return datasetNotFound(dataset);
+
+        RDFConnection conn = datasetConnections.get(dataset);
+        if (conn == null) return datasetNotFound(dataset);
+
+        try {
+            long deductionTriples = materializationService.materializeSameAs(dataset, conn, ds.namedGraphs());
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body("{\"status\":\"ok\",\"deductionTriples\":" + deductionTriples + "}");
+        } catch (Exception e) {
+            log.error("[{}] sameAs materialization failed: {}", dataset, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body("{\"error\":" + jsonString(e.getMessage()) + "}");

@@ -158,6 +158,27 @@ export async function normalizeEntitiesRuleBased(
   };
 }
 
+// ─── Materialization ──────────────────────────────────────────────────────────
+
+/**
+ * Activity: triggers sameAs materialization on the Java backend.
+ *
+ * Calls POST /ingest/normalize which uses Jena's FORWARD rule engine to compute
+ * the full sameAs closure + property propagation and writes results to abox:inferred.
+ * Should be called once after both normalization steps (rule-based + LLM) complete.
+ */
+export async function materializeNormalization(input: { datasetId: string }): Promise<void> {
+  const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8080";
+  const res = await fetch(
+    `${backendUrl}/ingest/normalize?dataset=${encodeURIComponent(input.datasetId)}`,
+    { method: "POST" },
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "(unreadable)");
+    throw new Error(`materializeNormalization failed HTTP ${res.status} for dataset=${input.datasetId} — ${body}`);
+  }
+}
+
 // ─── Rollback (also covers pairs written by the LLM step) ────────────────────
 
 /**

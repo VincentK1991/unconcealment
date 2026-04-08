@@ -2,7 +2,7 @@ export { embedAndStore } from "./embedAndStore";
 export { extractEntitiesFromChunk } from "./extractEntities";
 export type { ExtractionEntity, ExtractionRelationship, ExtractEntitiesOutput } from "./extractEntities";
 export { assertToGraph } from "./assertToGraph";
-export { normalizeEntitiesRuleBased, deleteNormalization } from "./normalizeEntitiesRuleBased";
+export { normalizeEntitiesRuleBased, deleteNormalization, materializeNormalization } from "./normalizeEntitiesRuleBased";
 export type { NormalizeEntitiesRuleBasedOutput, LlmCandidate } from "./normalizeEntitiesRuleBased";
 export { normalizeEntitiesLlm } from "./normalizeEntitiesLlm";
 export { resolveDocumentContent } from "./resolveDocumentContent";

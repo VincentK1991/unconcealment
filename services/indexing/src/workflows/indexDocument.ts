@@ -72,6 +72,7 @@ const { extractEntitiesFromChunk } = proxyActivities<typeof activities>({
 const {
   normalizeEntitiesRuleBased,
   deleteNormalization,
+  materializeNormalization,
 } = proxyActivities<typeof activities>({
   startToCloseTimeout: "5 minutes",
   heartbeatTimeout:    "2 minutes",
@@ -201,6 +202,8 @@ export async function indexDocument(input: IndexDocumentInput): Promise<void> {
         `pairsWritten=${llmResult.llmPairsAsserted}`,
       );
     }
+
+    await materializeNormalization({ datasetId: input.datasetId });
     normalizationDone = true;
   } catch (error) {
     // ── Compensation (best-effort rollback) ────────────────────────────────

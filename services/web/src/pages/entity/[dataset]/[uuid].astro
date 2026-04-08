@@ -23,10 +23,10 @@ interface Triple {
   p: { value: string };
   o: { value: string; type: string };
 }
-interface PeerTriple {
+interface SourcedTriple {
   source: { value: string };
-  p: { value: string };
-  o: { value: string; type: string };
+  p:      { value: string };
+  o:      { value: string; type: string };
 }
 interface ProvenanceBinding {
   document: { value: string };
@@ -53,7 +53,7 @@ const EX_SLUG      = "https://kg.unconcealment.io/ontology/slug";
 let titleText = entityIdParam;
 let triples: Triple[] = [];
 let incomingTriples: IncomingTriple[] = [];
-let peerTriples: PeerTriple[] = [];
+let inferredTriples: SourcedTriple[] = [];
 let peerIncomingTriples: PeerIncomingTriple[] = [];
 let entityDescription: string | null = null;
 let error: string | null = null;
@@ -68,14 +68,13 @@ const sameAsDisplayMap = new Map<string, { label?: string; slug?: string }>();
 let isCanonical = false;
 let canonicalIri: string | null = null;
 
-// Fetch the entity's own asserted (+ forward-materialized) triples — no sameAs inference.
+// Fetch the entity's own directly asserted triples (no inference, no sameAs cluster properties).
 async function fetchTriples(subjectIri: string): Promise<Triple[]> {
   const sparql = `
     SELECT ?p ?o WHERE {
-      GRAPH ?g {
+      GRAPH <${aboxAsserted}> {
         <${subjectIri}> ?p ?o .
       }
-      FILTER(?g IN (<${aboxAsserted}>, <${aboxInferred}>))
     }
     LIMIT 100
   `;
@@ -92,25 +91,29 @@ async function fetchTriples(subjectIri: string): Promise<Triple[]> {
   return data?.results?.bindings ?? [];
 }
 
-// Fetch properties of all sameAs cluster peers using SPARQL 1.1 property paths against Fuseki.
-// (owl:sameAs|^owl:sameAs)+ traverses the normalization graph in both directions transitively,
-// so indirect peers and reverse edges are all included. This avoids the Jena InfModel entirely —
-// Fuseki's native SPARQL engine handles the path traversal correctly and cheaply.
-async function fetchPeerTriples(subjectIri: string): Promise<PeerTriple[]> {
+// Fetch the full merged cluster view with per-triple source attribution.
+// Case 1: own asserted triples — source = this entity (BIND).
+// Case 2: inferred triples — cross-reference normalization graph to find which cluster peer
+//         originally held this property in abox:asserted.
+// DISTINCT on (?source, ?p, ?o) deduplicates if the same value appears in both cases.
+async function fetchInferredTriples(subjectIri: string): Promise<SourcedTriple[]> {
   const sparql = `
     PREFIX owl: <http://www.w3.org/2002/07/owl#>
     SELECT DISTINCT ?source ?p ?o WHERE {
-      GRAPH <${normGraph}> {
-        <${subjectIri}> (owl:sameAs|^owl:sameAs)+ ?source .
-        FILTER(?source != <${subjectIri}>)
-      }
-      GRAPH <${aboxAsserted}> {
-        ?source ?p ?o .
-        FILTER(isIRI(?source))
+      {
+        GRAPH <${aboxAsserted}> { <${subjectIri}> ?p ?o }
+        BIND(<${subjectIri}> AS ?source)
+      } UNION {
+        GRAPH <${aboxInferred}> { <${subjectIri}> ?p ?o }
+        GRAPH <${normGraph}> {
+          { <${subjectIri}> owl:sameAs ?source } UNION { ?source owl:sameAs <${subjectIri}> }
+          FILTER(?source != <${subjectIri}>)
+        }
+        GRAPH <${aboxAsserted}> { ?source ?p ?o }
       }
       FILTER(?p != owl:sameAs)
     }
-    LIMIT 200
+    LIMIT 500
   `;
   const res = await fetch(
     `${BACKEND_URL}/query/raw?dataset=${encodeURIComponent(datasetId)}`,
@@ -121,7 +124,7 @@ async function fetchPeerTriples(subjectIri: string): Promise<PeerTriple[]> {
     }
   );
   if (!res.ok) return [];
-  const data = await res.json() as { results?: { bindings?: PeerTriple[] } };
+  const data = await res.json() as { results?: { bindings?: SourcedTriple[] } };
   return data?.results?.bindings ?? [];
 }
 
@@ -192,12 +195,11 @@ async function fetchIncomingTriples(subjectIri: string): Promise<IncomingTriple[
   const sparql = `
     PREFIX owl: <http://www.w3.org/2002/07/owl#>
     SELECT DISTINCT ?s ?p WHERE {
-      GRAPH ?g {
+      GRAPH <${aboxAsserted}> {
         ?s ?p <${subjectIri}> .
         FILTER(isIRI(?s))
         FILTER(?p NOT IN (${INCOMING_FILTER_PREDICATES}))
       }
-      FILTER(?g IN (<${aboxAsserted}>, <${aboxInferred}>))
     }
     ORDER BY ?p ?s
     LIMIT 100
@@ -392,20 +394,24 @@ try {
       if (isCanonical) canonicalIri = entityIri;
     }
 
-    // Fetch cluster peer outgoing + incoming triples.
-    peerTriples = await fetchPeerTriples(entityIri);
-    peerIncomingTriples = await fetchPeerIncomingTriples(entityIri);
+    // Fetch merged cluster view from abox:inferred + incoming cluster references.
+    [inferredTriples, peerIncomingTriples] = await Promise.all([
+      fetchInferredTriples(entityIri),
+      fetchPeerIncomingTriples(entityIri),
+    ]);
     // Collect all IRIs needed for display metadata.
-    const peerSourceIris = Array.from(new Set(peerTriples.map(t => t.source.value)));
-    const peerObjectIris = Array.from(
-      new Set(peerTriples.filter(t => t.o.type === "uri").map(t => t.o.value))
+    const inferredObjectIris = Array.from(
+      new Set(inferredTriples.filter(t => t.o.type === "uri").map(t => t.o.value))
+    );
+    const inferredSourceIris = Array.from(
+      new Set(inferredTriples.map(t => t.source.value).filter(iri => iri !== entityIri))
     );
     const peerIncomingSubjectIris = Array.from(new Set(peerIncomingTriples.map(t => t.s.value)));
     const peerIncomingTargetIris  = Array.from(new Set(peerIncomingTriples.map(t => t.peer.value)));
-    const allPeerIris = [...peerSourceIris, ...peerObjectIris, ...peerIncomingSubjectIris, ...peerIncomingTargetIris];
-    if (allPeerIris.length > 0) {
-      const peerMeta = await fetchEntityDisplayMeta(allPeerIris);
-      for (const [iri, meta] of peerMeta.entries()) {
+    const allInferredIris = [...inferredObjectIris, ...inferredSourceIris, ...peerIncomingSubjectIris, ...peerIncomingTargetIris];
+    if (allInferredIris.length > 0) {
+      const inferredMeta = await fetchEntityDisplayMeta(allInferredIris);
+      for (const [iri, meta] of inferredMeta.entries()) {
         objectDisplayMap.set(iri, meta);
       }
     }
@@ -420,14 +426,12 @@ const shortPredicate = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
 // Seed data for the EntityGraph island — IRI-to-IRI edges only, literals excluded.
 // sameAs peers are treated as equivalent to the central entity (full equivalence),
 // so their outgoing/incoming neighbors are also included at degree 1.
-const seedEdges = [
-  ...triples
-    .filter((t) => t.o.type === "uri")
-    .map((t) => ({ source: entityIri, target: t.o.value, predicate: t.p.value })),
-  ...peerTriples
-    .filter((t) => t.o.type === "uri")
-    .map((t) => ({ source: t.source.value, target: t.o.value, predicate: t.p.value })),
-];
+// Use the inferred (merged cluster) triples for graph edges when available,
+// falling back to own asserted triples if materialization has not yet run.
+const graphSourceTriples = inferredTriples.length > 0 ? inferredTriples : triples;
+const seedEdges = graphSourceTriples
+  .filter((t) => t.o.type === "uri")
+  .map((t) => ({ source: entityIri, target: t.o.value, predicate: t.p.value }));
 
 const seedIncoming = [
   ...incomingTriples.map((t) => ({
@@ -554,8 +558,8 @@ for (const [iri, meta] of sameAsDisplayMap.entries()) {
     {/* Tab bar — only show the sameAs tab when there are cluster peers with properties */}
     <div class="tabs">
       <button class="tab-btn active" data-tab="raw">Properties</button>
-      {(peerTriples.length > 0 || peerIncomingTriples.length > 0) && (
-        <button class="tab-btn" data-tab="reasoned">With sameAs ({peerTriples.length + peerIncomingTriples.length} triples)</button>
+      {(inferredTriples.length > 0 || peerIncomingTriples.length > 0) && (
+        <button class="tab-btn" data-tab="reasoned">With sameAs ({inferredTriples.length + peerIncomingTriples.length} triples)</button>
       )}
       {entityIri && (
         <button class="tab-btn" data-tab="graph">Graph</button>
@@ -621,23 +625,33 @@ for (const [iri, meta] of sameAsDisplayMap.entries()) {
       )}
     </div>
 
-    {/* Tab: merged cluster view (sameAs outgoing + incoming) */}
-    {(peerTriples.length > 0 || peerIncomingTriples.length > 0) && (
+    {/* Tab: merged cluster view — outgoing from abox:inferred, incoming via normalization traversal */}
+    {(inferredTriples.length > 0 || peerIncomingTriples.length > 0) && (
       <div class="tab-panel" id="tab-reasoned">
-        <h3 class="subsection-title">References (cluster)</h3>
-        {(triples.length > 0 || peerTriples.length > 0) ? (
+        <h3 class="subsection-title">References (cluster — materialized)</h3>
+        {inferredTriples.length > 0 ? (
           <table>
             <thead>
               <tr>
+                <th>Subject</th>
                 <th>Predicate</th>
                 <th>Value</th>
-                <th>Source</th>
               </tr>
             </thead>
             <tbody>
-              {/* Own triples first */}
-              {triples.map((t) => (
+              {inferredTriples.map((t) => (
                 <tr>
+                  <td>
+                    {t.source.value === entityIri ? (
+                      <span class="source-tag">this entity</span>
+                    ) : (
+                      <span class="source-tag">
+                        <a href={linkPathFromIri(t.source.value)}>
+                          {objectDisplayMap.get(t.source.value)?.label ?? objectDisplayMap.get(t.source.value)?.slug ?? iriTail(t.source.value)}
+                        </a>
+                      </span>
+                    )}
+                  </td>
                   <td title={t.p.value}>{shortPredicate(t.p.value)}</td>
                   <td>
                     {t.o.type === "uri" ? (
@@ -647,36 +661,13 @@ for (const [iri, meta] of sameAsDisplayMap.entries()) {
                     ) : (
                       t.o.value
                     )}
-                  </td>
-                  <td><span class="source-tag">this entity</span></td>
-                </tr>
-              ))}
-              {/* Peer triples from sameAs cluster members */}
-              {peerTriples.map((t) => (
-                <tr>
-                  <td title={t.p.value}>{shortPredicate(t.p.value)}</td>
-                  <td>
-                    {t.o.type === "uri" ? (
-                      <a href={linkPathFromIri(t.o.value)}>
-                        {objectDisplayMap.get(t.o.value)?.label ?? objectDisplayMap.get(t.o.value)?.slug ?? iriTail(t.o.value)}
-                      </a>
-                    ) : (
-                      t.o.value
-                    )}
-                  </td>
-                  <td>
-                    <span class="source-tag">
-                      from <a href={linkPathFromIri(t.source.value)}>
-                        {objectDisplayMap.get(t.source.value)?.label ?? iriTail(t.source.value)}
-                      </a>
-                    </span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
-          <p style="color:#aaa;font-size:0.85rem">No outgoing properties in cluster.</p>
+          <p style="color:#aaa;font-size:0.85rem">No materialized properties found. Run POST /ingest/normalize to populate abox:inferred.</p>
         )}
 
         <h3 class="subsection-title">Referenced by (cluster)</h3>
