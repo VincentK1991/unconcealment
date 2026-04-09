@@ -94,7 +94,7 @@ public class OntologyLoaderService {
     private void recordLoadEvent(RDFConnection conn, String healthGraph, String datasetId) {
         String now = Instant.now().toString();
         String sparql = """
-                PREFIX ex:  <https://kg.unconcealment.io/ontology/>
+                PREFIX ex:  <http://localhost:4321/ontology/>
                 PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
                 INSERT DATA {
                   GRAPH <%s> {

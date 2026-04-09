@@ -21,7 +21,7 @@ async function fetchGraphSnapshot(input: DeleteGraphAssertionsInput): Promise<Gr
   const backendUrl = process.env.BACKEND_URL ?? "http://localhost:8080";
   const graphs = namedGraphs(input.datasetId);
   const snapshotQuery = `
-PREFIX ex: <https://kg.unconcealment.io/ontology/>
+PREFIX ex: <http://localhost:4321/ontology/>
 SELECT ?s ?p ?o ?annP ?annO WHERE {
   GRAPH <${graphs.aboxAsserted}> {
     << ?s ?p ?o >> ex:sourceDocument <${input.documentIri}> .
@@ -53,7 +53,7 @@ export async function deleteGraphAssertions(
   const snapshot = await fetchGraphSnapshot(input);
 
   const deleteSparql = `
-PREFIX ex: <https://kg.unconcealment.io/ontology/>
+PREFIX ex: <http://localhost:4321/ontology/>
 DELETE {
   GRAPH <${graphs.aboxAsserted}> {
     ?s ?p ?o .

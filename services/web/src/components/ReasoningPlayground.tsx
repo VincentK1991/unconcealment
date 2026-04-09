@@ -22,6 +22,20 @@ interface ExamplePreset {
   query: string;
 }
 
+interface PatternExample {
+  id: string;
+  label: string;
+}
+
+interface PatternGroup {
+  id: string;
+  label: string;
+  notation: string;
+  description: string;
+  usefulness: string;
+  examples: PatternExample[];
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const iriTail = (iri: string): string => iri.split(/[/#]/).pop() ?? iri;
@@ -109,88 +123,333 @@ function buildGraphData(vars: string[], rows: Binding[]): { nodes: FGNode[]; lin
 
 const EXAMPLE_PRESETS: ExamplePreset[] = [
   {
-    id: "conductedBy-parent",
-    label: "conductedBy parent",
-    description: "Recursive backward rule: 2020 Census inherits conductedBy from U.S. Census Bureau up to U.S. Department of Commerce.",
+    id: "coAuthor",
+    label: "coAuthor",
+    description: "Backward rule: two Person entities are co-authors if they both authored the same document via authoredBy.",
     rules: `# Verified against /query/playground on the live economic-census dataset.
--> table(<https://kg.unconcealment.io/ontology/conductedBy>).
+-> table(<http://localhost:4321/ontology/coAuthor>).
 
-[conductedByParent:
-  (?survey <https://kg.unconcealment.io/ontology/conductedBy> ?parent)
-  <- (?survey <https://kg.unconcealment.io/ontology/conductedBy> ?org),
-     (?org <https://kg.unconcealment.io/ontology/partOf> ?parent),
-     notEqual(?survey, ?parent)]`,
-    query: `PREFIX ex: <https://kg.unconcealment.io/ontology/>
+[coAuthor:
+  (?author1 <http://localhost:4321/ontology/coAuthor> ?author2)
+  <- (?object <http://localhost:4321/ontology/authoredBy> ?author1),
+     (?object <http://localhost:4321/ontology/authoredBy> ?author2),
+     (?author1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/Person>),
+     (?author2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/Person>),
+     notEqual(?author1, ?author2)]`,
+    query: `PREFIX ex: <http://localhost:4321/ontology/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
-SELECT ?s ?sLabel ?p ?o ?oLabel
+SELECT ?sLabel ?p ?oLabel
 WHERE {
-  ?s ex:conductedBy ?o .
+  ?s ex:coAuthor ?o .
   OPTIONAL { ?s rdfs:label ?sLabel . }
   OPTIONAL { ?o rdfs:label ?oLabel . }
-  BIND(ex:conductedBy AS ?p)
+  BIND(ex:coAuthor AS ?p)
 }
 ORDER BY ?sLabel ?oLabel
 LIMIT 20`,
   },
   {
-    id: "transitive-partOf",
-    label: "transitive partOf",
-    description: "Recursive backward rule: GQ Count Imputation Team rolls up through U.S. Census Bureau to U.S. Department of Commerce.",
+    id: "trend-observation",
+    label: "TrendObservation type",
+    description: "Type inference: StatisticalObservations that track year-over-year change are reclassified as TrendObservation — a new type absent from the base graph.",
     rules: `# Verified against /query/playground on the live economic-census dataset.
--> table(<https://kg.unconcealment.io/ontology/partOf>).
+# Type / Class Inference: class membership + property presence → new rdf:type.
+# rdf:type appears in both head and body, so Jena requires it to be tabled.
+-> table(<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>).
 
-[transitivePartOf:
-  (?a <https://kg.unconcealment.io/ontology/partOf> ?c)
-  <- (?a <https://kg.unconcealment.io/ontology/partOf> ?b),
-     (?b <https://kg.unconcealment.io/ontology/partOf> ?c),
-     notEqual(?a, ?c)]`,
-    query: `PREFIX ex: <https://kg.unconcealment.io/ontology/>
+[trendObservation:
+  (?obs <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/TrendObservation>)
+  <- (?obs <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/StatisticalObservation>),
+     (?obs <http://localhost:4321/ontology/changeDirection> ?dir)]`,
+    query: `PREFIX ex: <http://localhost:4321/ontology/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
-SELECT ?s ?sLabel ?p ?o ?oLabel
+SELECT ?label ?dir ?geoLabel ?measureLabel
 WHERE {
-  ?s ex:partOf ?o .
-  OPTIONAL { ?s rdfs:label ?sLabel . }
-  OPTIONAL { ?o rdfs:label ?oLabel . }
-  BIND(ex:partOf AS ?p)
+  ?obs rdf:type ex:TrendObservation ;
+       ex:changeDirection ?dir .
+  OPTIONAL { ?obs rdfs:label ?label }
+  OPTIONAL { ?obs ex:refersToGeography ?geo . ?geo rdfs:label ?geoLabel }
+  OPTIONAL { ?obs ex:measures ?m . ?m rdfs:label ?measureLabel }
+}
+ORDER BY ?label
+LIMIT 20`,
+  },
+  {
+    id: "geo-has-measure",
+    label: "geo hasMeasure",
+    description: "Property bridge: geographic areas gain a direct hasMeasure link by traversing observation→refersToGeography and observation→measures.",
+    rules: `# Verified against /query/playground on the live economic-census dataset.
+# Property bridge: two different predicates on the same observation node
+# produce a new direct predicate between geography and measure.
+# hasMeasure does not exist in the base graph — all results are inferred.
+# Type guards required: ex:measures has bad extractions (States, Observations)
+# typed as measures; guarding on StatisticalMeasure filters them out.
+[geoHasMeasure:
+  (?geo <http://localhost:4321/ontology/hasMeasure> ?measure)
+  <- (?obs <http://localhost:4321/ontology/refersToGeography> ?geo),
+     (?obs <http://localhost:4321/ontology/measures> ?measure),
+     (?measure <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/StatisticalMeasure>)]`,
+    query: `PREFIX ex: <http://localhost:4321/ontology/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?sLabel ?p ?oLabel
+WHERE {
+  ?s ex:hasMeasure ?o .
+  OPTIONAL { ?s rdfs:label ?sLabel }
+  OPTIONAL { ?o rdfs:label ?oLabel }
+  BIND(ex:hasMeasure AS ?p)
 }
 ORDER BY ?sLabel ?oLabel
 LIMIT 20`,
   },
   {
-    id: "transitive-sourceDocument",
-    label: "transitive sourceDocument",
-    description: "Recursive backward rule: Disclosure Avoidance System inherits an upstream sourceDocument through U.S. Census Bureau.",
+    id: "apportionment-derivedFrom",
+    label: "apportionment derivedFrom",
+    description: "Recursive backward rule: 2020 Census Apportionment follows derivedFrom chains, but only when the terminal node is an Organization.",
     rules: `# Verified against /query/playground on the live economic-census dataset.
--> table(<https://kg.unconcealment.io/ontology/sourceDocument>).
+-> table(<http://localhost:4321/ontology/derivedFrom>).
 
-[transitiveSourceDocument:
-  (?a <https://kg.unconcealment.io/ontology/sourceDocument> ?c)
-  <- (?a <https://kg.unconcealment.io/ontology/sourceDocument> ?b),
-     (?b <https://kg.unconcealment.io/ontology/sourceDocument> ?c),
+[apportionmentDerivedFrom:
+  (?a <http://localhost:4321/ontology/derivedFrom> ?c)
+  <- (?a <http://localhost:4321/ontology/derivedFrom> ?b),
+     (?b <http://localhost:4321/ontology/derivedFrom> ?c),
+     (?c <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/Organization>),
      notEqual(?a, ?c)]`,
-    query: `PREFIX ex: <https://kg.unconcealment.io/ontology/>
+    query: `PREFIX ex: <http://localhost:4321/ontology/>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
-SELECT ?s ?sLabel ?p ?o ?oLabel
+SELECT ?sLabel ("derivedFrom" AS ?pLabel) ?oLabel
 WHERE {
-  ?s ex:sourceDocument ?o .
-  OPTIONAL { ?s rdfs:label ?sLabel . }
-  OPTIONAL { ?o rdfs:label ?oLabel . }
-  BIND(ex:sourceDocument AS ?p)
+  ?s ex:derivedFrom ?o .
+  ?s rdfs:label ?sLabel .
+  FILTER(CONTAINS(LCASE(STR(?sLabel)), "apportionment"))
+
+  OPTIONAL { ?o rdfs:label ?oLabel }
 }
-ORDER BY ?sLabel ?oLabel
+ORDER BY ?oLabel ?o
+LIMIT 200`,
+  },
+  {
+    id: "reportedIn-transitive",
+    label: "reportedIn chain",
+    description: "Transitive backward rule: observations reported in a survey inherit a direct link to the survey's parent report document.",
+    rules: `# Verified against /query/playground on the live economic-census dataset.
+# Transitive closure: Observation→Survey→Report collapses to Observation→Report.
+# Type guards keep the rule semantically clean — avoids Survey→Organization chains.
+-> table(<http://localhost:4321/ontology/reportedIn>).
+
+[reportedInTransitive:
+  (?a <http://localhost:4321/ontology/reportedIn> ?c)
+  <- (?a <http://localhost:4321/ontology/reportedIn> ?b),
+     (?b <http://localhost:4321/ontology/reportedIn> ?c),
+     (?b <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/CensusSurvey>),
+     (?c <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/ReportDocument>),
+     notEqual(?a, ?c)]`,
+    query: `PREFIX ex: <http://localhost:4321/ontology/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?aLabel ?aType ?cLabel
+WHERE {
+  ?a ex:reportedIn ?c .
+  ?a rdfs:label ?aLabel .
+  ?c a ex:ReportDocument .
+  OPTIONAL { ?a a ?aType }
+  OPTIONAL { ?c rdfs:label ?cLabel }
+}
+ORDER BY ?cLabel ?aLabel
+LIMIT 20`,
+  },
+  {
+    id: "quantified-indicator",
+    label: "QuantifiedIndicator type",
+    description: "Type inference: EconomicIndicators that carry an explicit hasValue are reclassified as QuantifiedIndicator — a new type absent from the base graph.",
+    rules: `# Verified against /query/playground on the live economic-census dataset.
+# Type / Class Inference: base type + property presence → new rdf:type.
+# rdf:type appears in both head and body — must be tabled.
+-> table(<http://www.w3.org/1999/02/22-rdf-syntax-ns#type>).
+
+[quantifiedIndicator:
+  (?e <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/QuantifiedIndicator>)
+  <- (?e <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/EconomicIndicator>),
+     (?e <http://localhost:4321/ontology/hasValue> ?v)]`,
+    query: `PREFIX ex: <http://localhost:4321/ontology/>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?label ?val ?year
+WHERE {
+  ?e rdf:type ex:QuantifiedIndicator ;
+     ex:hasValue ?val .
+  OPTIONAL { ?e rdfs:label ?label }
+  OPTIONAL { ?e ex:forYear ?year }
+}
+ORDER BY ?year ?label
+LIMIT 20`,
+  },
+  {
+    id: "survey-yielded",
+    label: "survey yielded",
+    description: "Inverse property: derives CensusSurvey→yielded→StatisticalObservation as the reverse of the stored derivedFrom link. The yielded predicate does not exist in the base graph.",
+    rules: `# Verified against /query/playground on the live economic-census dataset.
+# Inverse Property: reverse a stored directed link under a new predicate name.
+# ex:yielded is brand-new — no tabling needed (no recursion risk).
+[surveyYielded:
+  (?survey <http://localhost:4321/ontology/yielded> ?obs)
+  <- (?obs <http://localhost:4321/ontology/derivedFrom> ?survey),
+     (?obs <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/StatisticalObservation>),
+     (?survey <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/CensusSurvey>)]`,
+    query: `PREFIX ex: <http://localhost:4321/ontology/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?surveyLabel ?obsLabel
+WHERE {
+  ?survey ex:yielded ?obs .
+  ?survey a ex:CensusSurvey .
+  OPTIONAL { ?survey rdfs:label ?surveyLabel }
+  OPTIONAL { ?obs rdfs:label ?obsLabel }
+}
+ORDER BY ?surveyLabel ?obsLabel
+LIMIT 20`,
+  },
+  {
+    id: "co-observation",
+    label: "coObservation",
+    description: "Symmetric role: two StatisticalObservations from the same CensusSurvey are inferred as co-observations of each other.",
+    rules: `# Verified against /query/playground on the live economic-census dataset.
+# Symmetric / Mutual Role: shared source survey creates a peer link between observations.
+# ex:coObservation is brand-new — no tabling needed.
+[coObservation:
+  (?a <http://localhost:4321/ontology/coObservation> ?b)
+  <- (?a <http://localhost:4321/ontology/derivedFrom> ?survey),
+     (?b <http://localhost:4321/ontology/derivedFrom> ?survey),
+     (?a <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/StatisticalObservation>),
+     (?b <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/StatisticalObservation>),
+     (?survey <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/CensusSurvey>),
+     notEqual(?a, ?b)]`,
+    query: `PREFIX ex: <http://localhost:4321/ontology/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?aLabel ?bLabel
+WHERE {
+  ?a ex:coObservation ?b .
+  OPTIONAL { ?a rdfs:label ?aLabel }
+  OPTIONAL { ?b rdfs:label ?bLabel }
+  FILTER(STR(?a) < STR(?b))
+}
+ORDER BY ?aLabel
+LIMIT 20`,
+  },
+  {
+    id: "inherit-group",
+    label: "obs inherits group",
+    description: "Property bridge with attribute inheritance: a StatisticalObservation inherits refersToGroup from its source CensusSurvey. Same predicate in head and body — requires tabling.",
+    rules: `# Verified against /query/playground on the live economic-census dataset.
+# Property Bridge: observation inherits a group reference from its source survey.
+# refersToGroup appears in both head and body (different subjects) — must be tabled
+# to prevent infinite backward recursion.
+-> table(<http://localhost:4321/ontology/refersToGroup>).
+
+[inheritGroup:
+  (?obs <http://localhost:4321/ontology/refersToGroup> ?grp)
+  <- (?obs <http://localhost:4321/ontology/derivedFrom> ?survey),
+     (?survey <http://localhost:4321/ontology/refersToGroup> ?grp),
+     (?obs <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/StatisticalObservation>),
+     (?survey <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/CensusSurvey>),
+     (?grp <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://localhost:4321/ontology/PopulationGroup>)]`,
+    query: `PREFIX ex: <http://localhost:4321/ontology/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT ?obsLabel ?grpLabel
+WHERE {
+  ?obs ex:refersToGroup ?grp .
+  ?obs a ex:StatisticalObservation .
+  ?grp a ex:PopulationGroup .
+  OPTIONAL { ?obs rdfs:label ?obsLabel }
+  OPTIONAL { ?grp rdfs:label ?grpLabel }
+}
+ORDER BY ?obsLabel
 LIMIT 20`,
   },
 ];
 
+// ── Pattern groups ────────────────────────────────────────────────────────────
+
+const PATTERN_GROUPS: PatternGroup[] = [
+  {
+    id: "transitive",
+    label: "Transitive Closure",
+    notation: "A→B, B→C ⊢ A→C (same predicate)",
+    description:
+      "A transitive rule propagates the same predicate across a chain of intermediate nodes. If A derives from B and B derives from C, the rule concludes A derives from C — collapsing multi-hop provenance into a direct link.",
+    usefulness:
+      "Exposes hidden lineage chains in provenance, organizational hierarchy, and citation graphs where intermediate hops obscure the terminal source.",
+    examples: [
+      { id: "apportionment-derivedFrom", label: "apportionment derivedFrom" },
+      { id: "reportedIn-transitive", label: "reportedIn chain" },
+    ],
+  },
+  {
+    id: "mutual",
+    label: "Symmetric / Mutual Role",
+    notation: "A→Z, B→Z ⊢ A↔B (shared third entity)",
+    description:
+      "A symmetric role rule infers a bidirectional relationship between two entities that share a connection to a common third entity. If two people both authored the same document, they are co-authors of each other.",
+    usefulness:
+      "Discovers implicit peer relationships — co-authorship, co-membership, co-location — that are never stored explicitly but derivable from shared participation.",
+    examples: [{ id: "coAuthor", label: "coAuthor" }],
+  },
+  {
+    id: "bridge",
+    label: "Property Bridge",
+    notation: "A→B, B→C ⊢ A→C (different predicates, new result)",
+    description:
+      "A property bridge rule combines two different predicates on a shared intermediate node to produce a new direct predicate absent from the base graph. A geographic area gains a hasMeasure link by joining refersToGeography and measures through a shared observation node.",
+    usefulness:
+      "Shortcuts expensive multi-hop SPARQL traversals and enables faceted filtering on relationships that only exist through an intermediate join node.",
+    examples: [
+      { id: "geo-has-measure", label: "geo hasMeasure" },
+      { id: "inherit-group", label: "obs inherits group" },
+    ],
+  },
+  {
+    id: "inverse",
+    label: "Inverse Property",
+    notation: "A→B ⊢ B→A (reverse arrow, new predicate name)",
+    description:
+      "An inverse rule creates a reverse link from the object back to the subject under a new predicate name. Only the forward direction is stored; the rule derives what navigation in the opposite direction would produce.",
+    usefulness:
+      "Models bidirectional access without duplicating storage at ingest time. The stored direction reflects how data was captured; the inferred direction reflects how users naturally browse.",
+    examples: [{ id: "survey-yielded", label: "survey yielded" }],
+  },
+  {
+    id: "type",
+    label: "Type / Class Inference",
+    notation: "type(X,C) + property(X) ⊢ type(X,D)",
+    description:
+      "A type inference rule assigns a new rdf:type to an entity when it has a base type and additionally satisfies a property condition. Statistical observations that carry a changeDirection property are reclassified as TrendObservations.",
+    usefulness:
+      "Enables class-based queries over subtypes never explicitly asserted, reducing the need for FILTER or UNION clauses across the query layer.",
+    examples: [
+      { id: "trend-observation", label: "TrendObservation type" },
+      { id: "quantified-indicator", label: "QuantifiedIndicator type" },
+    ],
+  },
+];
+
+const EXAMPLE_MAP = new Map<string, ExamplePreset>(
+  EXAMPLE_PRESETS.map((e) => [e.id, e])
+);
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ReasoningPlayground({ datasetId }: { datasetId: string }) {
-  const [selectedExampleId, setSelectedExampleId] = useState(EXAMPLE_PRESETS[0].id);
-  const [rules, setRules] = useState(EXAMPLE_PRESETS[0].rules);
-  const [query, setQuery] = useState(EXAMPLE_PRESETS[0].query);
+  const [selectedPatternId, setSelectedPatternId] = useState<string>(PATTERN_GROUPS[0].id);
+  const [selectedExampleId, setSelectedExampleId] = useState(PATTERN_GROUPS[0].examples[0].id);
+  const [rules, setRules] = useState(EXAMPLE_MAP.get(PATTERN_GROUPS[0].examples[0].id)!.rules);
+  const [query, setQuery] = useState(EXAMPLE_MAP.get(PATTERN_GROUPS[0].examples[0].id)!.query);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<PlaygroundResults | null>(null);
@@ -257,25 +516,52 @@ export default function ReasoningPlayground({ datasetId }: { datasetId: string }
     setActiveTab("table");
   };
 
+  const handleSelectPattern = (patternId: string) => {
+    const group = PATTERN_GROUPS.find((g) => g.id === patternId)!;
+    setSelectedPatternId(patternId);
+    handleLoadExample(EXAMPLE_MAP.get(group.examples[0].id)!);
+  };
+
   return (
     <div style={{ fontFamily: "system-ui, sans-serif" }}>
 
-      <div style={exampleSectionStyle}>
-        <div style={exampleHeaderStyle}>Verified Recursive Examples</div>
-        <div style={exampleHintStyle}>Each preset uses a tabled recursive backward rule, a fixed-predicate query, and was verified against the live `economic-census` playground endpoint to return inferred rows absent from the base graph.</div>
-        <div style={exampleListStyle}>
-          {EXAMPLE_PRESETS.map((example) => (
-            <button
-              key={example.id}
-              onClick={() => handleLoadExample(example)}
-              style={exampleButtonStyle(example.id === selectedExampleId)}
-            >
-              <strong>{example.label}</strong>
-              <span style={exampleDescriptionStyle}>{example.description}</span>
-            </button>
-          ))}
-        </div>
+      {/* ── Pattern Group Tabs ── */}
+      <div style={patternTabBarStyle}>
+        {PATTERN_GROUPS.map((group) => (
+          <button
+            key={group.id}
+            onClick={() => handleSelectPattern(group.id)}
+            style={patternTabButtonStyle(group.id === selectedPatternId)}
+          >
+            {group.label}
+          </button>
+        ))}
       </div>
+
+      {/* ── Active Pattern Panel ── */}
+      {(() => {
+        const group = PATTERN_GROUPS.find((g) => g.id === selectedPatternId)!;
+        return (
+          <div style={patternPanelStyle}>
+            <div style={patternHeadingStyle}>{group.label}</div>
+            <div style={notationPillStyle}>{group.notation}</div>
+            <div style={patternDescriptionStyle}>{group.description}</div>
+            <div style={patternUsefulnessLabelStyle}>Why it&apos;s useful</div>
+            <div style={patternUsefulnessStyle}>{group.usefulness}</div>
+            <div style={patternExampleRowStyle}>
+              {group.examples.map((ex) => (
+                <button
+                  key={ex.id}
+                  onClick={() => handleLoadExample(EXAMPLE_MAP.get(ex.id)!)}
+                  style={patternExampleButtonStyle(ex.id === selectedExampleId)}
+                >
+                  {ex.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Editors ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
@@ -461,53 +747,95 @@ const labelStyle: React.CSSProperties = {
   marginBottom: "0.4rem",
 };
 
-const exampleSectionStyle: React.CSSProperties = {
+const patternTabBarStyle: React.CSSProperties = {
+  display: "flex",
+  gap: "2px",
+  padding: "4px",
+  background: "#f0f0f0",
+  borderRadius: "10px",
   marginBottom: "1rem",
-  padding: "0.9rem 1rem",
+  flexWrap: "wrap",
+};
+
+const patternTabButtonStyle = (active: boolean): React.CSSProperties => ({
+  padding: "0.4rem 0.9rem",
+  fontSize: "0.82rem",
+  fontWeight: active ? 600 : 400,
+  color: active ? "#1a6bb5" : "#555",
+  background: active ? "#fff" : "transparent",
+  border: active ? "1px solid #d0d8e4" : "1px solid transparent",
+  borderRadius: "7px",
+  cursor: "pointer",
+  boxShadow: active ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+  whiteSpace: "nowrap" as const,
+});
+
+const patternPanelStyle: React.CSSProperties = {
+  padding: "1rem 1.1rem 1.1rem",
   border: "1px solid #e0e0e0",
   borderRadius: "8px",
   background: "#fcfcfc",
+  marginBottom: "1rem",
 };
 
-const exampleHeaderStyle: React.CSSProperties = {
-  fontSize: "0.88rem",
+const patternHeadingStyle: React.CSSProperties = {
+  fontSize: "0.92rem",
   fontWeight: 700,
   color: "#222",
-  marginBottom: "0.25rem",
+  margin: "0 0 0.55rem 0",
 };
 
-const exampleHintStyle: React.CSSProperties = {
+const notationPillStyle: React.CSSProperties = {
+  display: "inline-block",
+  fontFamily: '"SF Mono", "Fira Code", monospace',
   fontSize: "0.8rem",
-  color: "#666",
-  marginBottom: "0.75rem",
-  lineHeight: 1.45,
+  color: "#1a6bb5",
+  background: "#eef6ff",
+  border: "1px solid #c5ddf7",
+  borderRadius: "5px",
+  padding: "0.2rem 0.6rem",
+  marginBottom: "0.65rem",
 };
 
-const exampleListStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: "0.75rem",
+const patternDescriptionStyle: React.CSSProperties = {
+  fontSize: "0.83rem",
+  color: "#444",
+  lineHeight: 1.55,
+  marginBottom: "0.65rem",
 };
 
-const exampleButtonStyle = (active: boolean): React.CSSProperties => ({
+const patternUsefulnessLabelStyle: React.CSSProperties = {
+  fontSize: "0.78rem",
+  fontWeight: 600,
+  color: "#888",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.04em",
+  marginBottom: "0.3rem",
+};
+
+const patternUsefulnessStyle: React.CSSProperties = {
+  fontSize: "0.82rem",
+  color: "#555",
+  lineHeight: 1.5,
+  marginBottom: "0.85rem",
+};
+
+const patternExampleRowStyle: React.CSSProperties = {
   display: "flex",
-  flexDirection: "column",
-  alignItems: "flex-start",
-  gap: "0.35rem",
-  textAlign: "left",
-  padding: "0.75rem 0.85rem",
-  borderRadius: "8px",
-  border: active ? "1px solid #1a6bb5" : "1px solid #d7d7d7",
+  gap: "0.5rem",
+  flexWrap: "wrap" as const,
+};
+
+const patternExampleButtonStyle = (active: boolean): React.CSSProperties => ({
+  padding: "0.35rem 0.8rem",
+  fontSize: "0.82rem",
+  fontWeight: active ? 600 : 400,
+  color: active ? "#1a6bb5" : "#444",
   background: active ? "#eef6ff" : "#fff",
-  color: "#222",
+  border: active ? "1px solid #1a6bb5" : "1px solid #d7d7d7",
+  borderRadius: "6px",
   cursor: "pointer",
 });
-
-const exampleDescriptionStyle: React.CSSProperties = {
-  fontSize: "0.78rem",
-  color: "#666",
-  lineHeight: 1.4,
-};
 
 const hintStyle: React.CSSProperties = {
   fontWeight: 400,

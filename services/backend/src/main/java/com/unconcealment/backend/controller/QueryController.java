@@ -79,8 +79,7 @@ public class QueryController {
         if (ds == null) return datasetNotFound(dataset);
 
         NamedGraphs graphs = ds.namedGraphs();
-        String tboxSparql = sparqlQuerySupportService.injectFromClauses(
-                sparql, graphs.tbox(), graphs.rulesForward(), graphs.rulesBackward());
+        String tboxSparql = sparqlQuerySupportService.injectFromClauses(sparql, graphs.tbox());
         return executeSparqlSelect(dataset, tboxSparql, "tbox");
     }
 

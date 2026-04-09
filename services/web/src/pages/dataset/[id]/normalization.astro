@@ -3,168 +3,13 @@ export const prerender = false;
 
 import BaseLayout from "../../../layouts/BaseLayout.astro";
 import DatasetNav from "../../../components/DatasetNav.astro";
-import DataTable from "../../../components/DataTable.astro";
-import StatCard from "../../../components/StatCard.astro";
-import Chip from "../../../components/Chip.astro";
-import ErrorAlert from "../../../components/ErrorAlert.astro";
-import EmptyState from "../../../components/EmptyState.astro";
+import NormalizationExplorer from "../../../components/NormalizationExplorer.tsx";
 
 const { id: datasetId } = Astro.params;
 if (!datasetId) return Astro.redirect("/");
 
-const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
-const normGraph   = `urn:${datasetId}:normalization`;
-const EX          = "https://kg.unconcealment.io/ontology/";
-
-interface LabelBinding {
-  entity: { value: string };
-  label?: { value: string };
-  slug?:  { value: string };
-}
-
-interface RowBinding {
-  canonical: { value: string };
-  alias?:    { value: string };
-  method?:   { value: string };
-  conf?:     { value: string };
-}
-
-const clusterSparql = `
-  PREFIX owl: <http://www.w3.org/2002/07/owl#>
-  PREFIX ex:  <${EX}>
-  SELECT ?canonical ?alias ?method ?conf WHERE {
-    GRAPH <${normGraph}> {
-      ?canonical ex:isCanonical true .
-      OPTIONAL {
-        {
-          ?canonical owl:sameAs ?alias .
-          OPTIONAL {
-            << ?canonical owl:sameAs ?alias >> ex:normalizationMethod ?method .
-            << ?canonical owl:sameAs ?alias >> ex:confidence ?conf .
-          }
-        }
-        UNION
-        {
-          ?alias owl:sameAs ?canonical .
-          OPTIONAL {
-            << ?alias owl:sameAs ?canonical >> ex:normalizationMethod ?method .
-            << ?alias owl:sameAs ?canonical >> ex:confidence ?conf .
-          }
-        }
-        FILTER(?alias != ?canonical)
-      }
-    }
-  }
-  ORDER BY DESC(?conf) ?canonical
-  LIMIT 2000
-`;
-
-let rows: RowBinding[] = [];
-let error: string | null = null;
-
-try {
-  const res = await fetch(`${BACKEND_URL}/query/raw?dataset=${encodeURIComponent(datasetId)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/sparql-query" },
-    body: clusterSparql,
-  });
-  if (res.ok) {
-    const data = await res.json() as { results?: { bindings?: RowBinding[] } };
-    rows = data.results?.bindings ?? [];
-  } else {
-    error = `Backend returned ${res.status}`;
-  }
-} catch {
-  error = "Backend unavailable";
-}
-
-interface Cluster {
-  canonical: string;
-  aliases:   string[];
-  bestMethod?: string;
-  bestConf?:   number;
-}
-
-const clusterMap = new Map<string, Cluster>();
-for (const row of rows) {
-  const c = row.canonical.value;
-  if (!clusterMap.has(c)) clusterMap.set(c, { canonical: c, aliases: [] });
-  const cluster = clusterMap.get(c)!;
-  if (row.alias?.value && !cluster.aliases.includes(row.alias.value)) {
-    cluster.aliases.push(row.alias.value);
-  }
-  const conf = parseFloat(row.conf?.value ?? "0");
-  if (!isNaN(conf) && conf > (cluster.bestConf ?? 0)) {
-    cluster.bestConf   = conf;
-    cluster.bestMethod = row.method?.value;
-  }
-}
-
-const clusters = Array.from(clusterMap.values())
-  .sort((a, b) => b.aliases.length - a.aliases.length);
-
-const labelMap = new Map<string, { label?: string; slug?: string }>();
-const allIriSet = new Set<string>();
-for (const c of clusters) {
-  allIriSet.add(c.canonical);
-  for (const a of c.aliases) allIriSet.add(a);
-}
-const allIris = Array.from(allIriSet);
-
-if (allIris.length > 0) {
-  const values      = allIris.map(iri => `<${iri}>`).join(" ");
-  const labelSparql = `
-    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-    PREFIX ex:   <${EX}>
-    SELECT ?entity ?label ?slug WHERE {
-      GRAPH ?g {
-        VALUES ?entity { ${values} }
-        OPTIONAL { ?entity rdfs:label ?label }
-        OPTIONAL { ?entity ex:slug    ?slug  }
-      }
-    }
-  `;
-  try {
-    const res = await fetch(`${BACKEND_URL}/query/raw?dataset=${encodeURIComponent(datasetId)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/sparql-query" },
-      body: labelSparql,
-    });
-    if (res.ok) {
-      const data = await res.json() as { results?: { bindings?: LabelBinding[] } };
-      for (const row of data.results?.bindings ?? []) {
-        const iri = row.entity?.value;
-        if (!iri) continue;
-        const cur = labelMap.get(iri) ?? {};
-        if (row.label?.value) cur.label = row.label.value;
-        if (row.slug?.value)  cur.slug  = row.slug.value;
-        labelMap.set(iri, cur);
-      }
-    }
-  } catch { /* best-effort */ }
-}
-
-const methodCounts: Record<string, number> = {};
-for (const c of clusters) {
-  const m = c.bestMethod ?? "unknown";
-  methodCounts[m] = (methodCounts[m] ?? 0) + 1;
-}
-
-const iriTail     = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
-const displayName = (iri: string) => {
-  const m = labelMap.get(iri);
-  return m?.label ?? m?.slug ?? iriTail(iri);
-};
-const entityLink  = (iri: string) =>
-  `/entity/${encodeURIComponent(datasetId)}/${encodeURIComponent(iriTail(iri))}`;
-
-type ChipVariant = "blue" | "amber" | "gray" | "green";
-const methodVariant = (m: string | undefined): { label: string; variant: ChipVariant } => {
-  if (m === "exact-label")  return { label: "exact",  variant: "green" };
-  if (m === "jaro-winkler") return { label: "fuzzy",  variant: "amber" };
-  if (m === "llm-judge")    return { label: "llm",    variant: "blue"  };
-  return { label: m ?? "—", variant: "gray" };
-};
+const requestedPage = Math.max(1, Number.parseInt(Astro.url.searchParams.get("page") ?? "1", 10));
+const normGraph = `urn:${datasetId}:normalization`;
 ---
 
 <BaseLayout title={`Normalization — ${datasetId} — unconcealment`}>
@@ -174,52 +19,11 @@ const methodVariant = (m: string | undefined): { label: string; variant: ChipVar
     <h1 style="font-family: 'Manrope', sans-serif; font-size: 1.75rem; font-weight: 800; color: #191c1e; letter-spacing: -0.025em; margin-bottom: 0.25rem;">
       Normalization
     </h1>
+    <p style="font-size: 0.9rem; color: #434656; margin: 0 0 0.35rem;">
+      Connected components from the normalization named graph, with canonical markers layered on top.
+    </p>
     <code style="font-size: 0.7rem; color: #c4c5d9;">{normGraph}</code>
   </div>
 
-  {error && <ErrorAlert message={error} />}
-  {clusters.length === 0 && !error && (
-    <EmptyState message="No normalization clusters found. Run the indexing pipeline to populate this graph." />
-  )}
-
-  {clusters.length > 0 && (
-    <>
-      <div style="display: flex; gap: 0.875rem; flex-wrap: wrap; margin-bottom: 1.75rem;">
-        <StatCard value={clusters.length} label="clusters" icon="hub" />
-        <StatCard value={allIris.length}  label="entities linked" icon="grain" />
-        {Object.entries(methodCounts).map(([m, n]) => {
-          const { label } = methodVariant(m);
-          return <StatCard value={n} label={label} />;
-        })}
-      </div>
-
-      <DataTable columns={["Canonical entity", "Also known as", "Conf.", "Method"]}>
-        {clusters.map((c) => {
-          const mv   = methodVariant(c.bestMethod);
-          const conf = c.bestConf != null ? `${Math.round(c.bestConf * 100)}%` : "—";
-          return (
-            <tr>
-              <td>
-                <a class="link-primary" style="font-weight: 600;" href={entityLink(c.canonical)}>
-                  {displayName(c.canonical)}
-                </a>
-                <div style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.68rem; color: #c4c5d9; margin-top: 0.125rem;" title={c.canonical}>
-                  {iriTail(c.canonical)}
-                </div>
-              </td>
-              <td>
-                <div style="display: flex; flex-wrap: wrap; gap: 0.25rem;">
-                  {c.aliases.map(iri => (
-                    <Chip label={displayName(iri)} href={entityLink(iri)} variant="gray" />
-                  ))}
-                </div>
-              </td>
-              <td style="font-size: 0.875rem; color: #747688; text-align: right;">{conf}</td>
-              <td><Chip label={mv.label} variant={mv.variant} /></td>
-            </tr>
-          );
-        })}
-      </DataTable>
-    </>
-  )}
+  <NormalizationExplorer client:load datasetId={datasetId} initialPage={requestedPage} />
 </BaseLayout>

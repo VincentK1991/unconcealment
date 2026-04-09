@@ -21,7 +21,7 @@ interface RuleBinding {
 
 async function fetchRules(graphUri: string): Promise<RuleBinding[]> {
   const sparql = `
-    PREFIX ex: <https://kg.unconcealment.io/ontology/>
+    PREFIX ex: <http://localhost:4321/ontology/>
     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
     SELECT ?rule ?name ?body ?status ?order WHERE {
       GRAPH <${graphUri}> {

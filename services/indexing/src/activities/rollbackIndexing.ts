@@ -20,7 +20,7 @@ export async function rollbackIndexing(input: RollbackIndexingInput): Promise<vo
   const graphs = namedGraphs(input.datasetId);
 
   const rollbackSparql = `
-PREFIX ex: <https://kg.unconcealment.io/ontology/>
+PREFIX ex: <http://localhost:4321/ontology/>
 DELETE {
   GRAPH <${graphs.aboxAsserted}> {
     ?s ?p ?o .

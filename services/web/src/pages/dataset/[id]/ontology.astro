@@ -94,11 +94,10 @@ const short = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
   {classes.length === 0
     ? <EmptyState message="No classes found." />
     : (
-      <DataTable columns={["Class", "IRI", "Parent", "Description"]}>
+      <DataTable columns={["Class", "Parent", "Description"]}>
         {classes.map(row => (
           <tr>
             <td style="font-weight: 600;">{row.label.value}</td>
-            <td style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.7rem; color: #c4c5d9; word-break: break-all;">{row.class.value}</td>
             <td style="font-size: 0.8125rem; color: #747688;">{row.parent ? short(row.parent.value) : "—"}</td>
             <td style="font-size: 0.8125rem; color: #434656;">{row.comment?.value ?? ""}</td>
           </tr>

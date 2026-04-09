@@ -26,8 +26,8 @@ tables:
       200+ columns spanning income, poverty, demographics, education, employment, housing, and commuting.
       Use this for populous counties. For smaller counties (<65k pop) use acs_county_5yr instead.
     rdfBinding:
-      entityClass: https://kg.unconcealment.io/ontology/County
-      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      entityClass: http://localhost:4321/ontology/County
+      joinProperty: http://localhost:4321/ontology/fipsCode
       joinExpression: "SUBSTR(geo_id, -5)"   # extracts 5-digit FIPS from full geo_id
     keyColumns:
       - name: geo_id
@@ -128,8 +128,8 @@ tables:
       Use when county population is below 65,000 or when 1-year data is missing.
       Same column schema as county_2021_1yr.
     rdfBinding:
-      entityClass: https://kg.unconcealment.io/ontology/County
-      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      entityClass: http://localhost:4321/ontology/County
+      joinProperty: http://localhost:4321/ontology/fipsCode
       joinExpression: "SUBSTR(geo_id, -5)"
     keyColumns:
       - name: geo_id
@@ -172,8 +172,8 @@ tables:
       Covers all 50 US states + DC. Same 200+ column schema as county tables.
       Use for state-level comparisons and as context for county-level analysis.
     rdfBinding:
-      entityClass: https://kg.unconcealment.io/ontology/State
-      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      entityClass: http://localhost:4321/ontology/State
+      joinProperty: http://localhost:4321/ontology/fipsCode
       joinExpression: "SUBSTR(geo_id, -2)"  # 2-digit state FIPS
     keyColumns:
       - name: geo_id
@@ -220,8 +220,8 @@ tables:
       Parent income percentiles: p1, p25, p50, p75, p100, mean
       Key metric for upward mobility: kfr_pooled_pooled_p25 (family income rank for children from p25 families)
     rdfBinding:
-      entityClass: https://kg.unconcealment.io/ontology/CensusTract
-      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      entityClass: http://localhost:4321/ontology/CensusTract
+      joinProperty: http://localhost:4321/ontology/fipsCode
       joinExpression: "LPAD(CAST(state AS STRING),2,'0') || LPAD(CAST(county AS STRING),3,'0')"
     keyColumns:
       - name: state
@@ -301,8 +301,8 @@ tables:
       Join to tract_outcomes on (state, county, tract) to understand what drives mobility.
       The czname column provides human-readable commuting zone name (only STRING field).
     rdfBinding:
-      entityClass: https://kg.unconcealment.io/ontology/CensusTract
-      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      entityClass: http://localhost:4321/ontology/CensusTract
+      joinProperty: http://localhost:4321/ontology/fipsCode
       joinExpression: "LPAD(CAST(state AS STRING),2,'0') || LPAD(CAST(county AS STRING),3,'0')"
     keyColumns:
       - name: state
@@ -375,8 +375,8 @@ tables:
       Latest available year in BigQuery is 2019. Q2 used for stable annual comparison.
       Join to ACS tables via 5-digit FIPS (geoid column).
     rdfBinding:
-      entityClass: https://kg.unconcealment.io/ontology/County
-      joinProperty: https://kg.unconcealment.io/ontology/fipsCode
+      entityClass: http://localhost:4321/ontology/County
+      joinProperty: http://localhost:4321/ontology/fipsCode
       joinExpression: "geoid"
     keyColumns:
       - name: geoid

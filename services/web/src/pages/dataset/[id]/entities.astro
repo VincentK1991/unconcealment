@@ -37,7 +37,7 @@ const sparql = `
   PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
   PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
   PREFIX owl:  <http://www.w3.org/2002/07/owl#>
-  PREFIX ex:   <https://kg.unconcealment.io/ontology/>
+  PREFIX ex:   <http://localhost:4321/ontology/>
   SELECT DISTINCT ?entity ?label ?slug ?type (MIN(?c) AS ?comment) WHERE {
     GRAPH <${aboxAsserted}> {
       ?entity a ?type .

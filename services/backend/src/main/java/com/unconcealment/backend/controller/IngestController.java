@@ -48,7 +48,7 @@ public class IngestController {
 
     private static final Logger log = LoggerFactory.getLogger(IngestController.class);
 
-    private static final String ONTOLOGY_NS = "https://kg.unconcealment.io/ontology/";
+    private static final String ONTOLOGY_NS = "http://localhost:4321/ontology/";
 
     private final DatasetManifest manifest;
     private final Map<String, RDFConnection> datasetConnections;

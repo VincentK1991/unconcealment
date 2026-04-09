@@ -1,4 +1,4 @@
-@prefix ex: <https://kg.unconcealment.io/ontology/> .
+@prefix ex: <http://localhost:4321/ontology/> .
 
 # ============================================================
 # Forward Chaining Rules — public-health dataset

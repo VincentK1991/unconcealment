@@ -56,10 +56,13 @@ export interface ExtractEntitiesOutput {
 }
 
 interface OntologyBinding {
-  term:      { value: string };
-  termType:  { value: string };
-  label:     { value: string };
-  comment?:  { value: string };
+  term:         { value: string };
+  termType:     { value: string };
+  label?:       { value: string };
+  comment?:     { value: string };
+  propertyKind?: { value: string };
+  domains?:     { value: string };
+  ranges?:      { value: string };
 }
 
 /**
@@ -169,14 +172,19 @@ async function fetchOntologyContext(
     const propertyLines: string[] = [];
 
     for (const row of bindings) {
-      const comment = row.comment ? ` — ${row.comment.value}` : "";
-      // Extract local name from full IRI (after last # or /)
-      const localName = row.term.value.replace(/.*[#/]/, "");
-      const line = `  ${localName} (${row.label.value})${comment}`;
+      const localName = extractLocalName(row.term.value);
+      const label = row.label?.value ?? localName;
+      const comment = row.comment?.value ? ` — ${row.comment.value}` : "";
       if (row.termType.value === "class") {
-        classLines.push(line);
+        classLines.push(`  ${localName} (${label})${comment}`);
       } else {
-        propertyLines.push(line);
+        const propertyKind = row.propertyKind?.value ? `${row.propertyKind.value} property` : "property";
+        const domains = formatIriList(row.domains?.value);
+        const ranges = formatIriList(row.ranges?.value);
+        const signatureParts = [propertyKind];
+        if (domains) signatureParts.push(`domain=${domains}`);
+        if (ranges) signatureParts.push(`range=${ranges}`);
+        propertyLines.push(`  ${localName} (${label}) [${signatureParts.join("; ")}]${comment}`);
       }
     }
 
@@ -190,6 +198,20 @@ async function fetchOntologyContext(
     );
     return fallback;
   }
+}
+
+function extractLocalName(iri: string): string {
+  return iri.replace(/.*[#/]/, "");
+}
+
+function formatIriList(value?: string): string {
+  if (!value) return "";
+  const items = value
+    .split("|")
+    .map(item => item.trim())
+    .filter(Boolean)
+    .map(extractLocalName);
+  return [...new Set(items)].join(", ");
 }
 
 async function callStructuredExtraction(

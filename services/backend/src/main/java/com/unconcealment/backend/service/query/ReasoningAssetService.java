@@ -43,7 +43,7 @@ public class ReasoningAssetService {
                 ? "FILTER(!BOUND(?order) || ?order <= " + maxOrder + ") "
                 : "";
         String loadSparql =
-                "PREFIX ex: <https://kg.unconcealment.io/ontology/> " +
+                "PREFIX ex: <http://localhost:4321/ontology/> " +
                 "SELECT ?body ?order WHERE { GRAPH <" + graphUri + "> { " +
                 "?r a ex:" + ruleType + " ; ex:ruleBody ?body . " +
                 "OPTIONAL { ?r ex:ruleOrder ?order } " + orderFilter + "} } ORDER BY ?order";
@@ -52,7 +52,7 @@ public class ReasoningAssetService {
             try (QueryExecution qe = conn.query(q)) {
                 ResultSet rs = qe.execSelect();
                 String prefixes =
-                        "@prefix ex:   <https://kg.unconcealment.io/ontology/> .\n" +
+                        "@prefix ex:   <http://localhost:4321/ontology/> .\n" +
                         "@prefix owl:  <http://www.w3.org/2002/07/owl#> .\n" +
                         "@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .\n" +
                         "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n";

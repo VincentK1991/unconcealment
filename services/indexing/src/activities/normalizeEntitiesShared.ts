@@ -7,7 +7,7 @@
  *   normalizeEntitiesLlm       → receives LlmCandidate[], writes accepted sameAs pairs
  */
 
-export const ONTOLOGY_NS  = "https://kg.unconcealment.io/ontology/";
+export const ONTOLOGY_NS  = "http://localhost:4321/ontology/";
 export const OWL_SAME_AS  = "http://www.w3.org/2002/07/owl#sameAs";
 export const XSD_DATETIME = "http://www.w3.org/2001/XMLSchema#dateTime";
 export const IS_CANONICAL = `${ONTOLOGY_NS}isCanonical`;

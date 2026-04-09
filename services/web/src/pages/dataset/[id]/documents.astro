@@ -19,7 +19,7 @@ interface DocumentBinding {
 }
 
 const sparql = `
-  PREFIX ex: <https://kg.unconcealment.io/ontology/>
+  PREFIX ex: <http://localhost:4321/ontology/>
   SELECT ?document (COUNT(*) AS ?tripleCount) WHERE {
     GRAPH <${aboxAsserted}> {
       << ?s ?p ?o >> ex:sourceDocument ?document .

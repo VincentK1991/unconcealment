@@ -2,7 +2,7 @@
 @prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
-@prefix ex:   <https://kg.unconcealment.io/ontology/> .
+@prefix ex:   <http://localhost:4321/ontology/> .
 
 # ============================================================
 # Ontology: Economic & Census Data
@@ -10,7 +10,7 @@
 # Status:   Phase 1 stub — classes and properties are additive-first
 # ============================================================
 
-<https://kg.unconcealment.io/ontology/economic-census>
+<http://localhost:4321/ontology/economic-census>
     a owl:Ontology ;
     rdfs:label "Economic & Census Data Ontology" ;
     owl:versionInfo "0.2.0" .
@@ -28,28 +28,6 @@ ex:Document
     a owl:Class ;
     rdfs:label "Document" ;
     rdfs:comment "A source document from which triples are extracted. Referenced in provenance." .
-
-ex:Rule
-    a owl:Class ;
-    rdfs:label "Rule" .
-
-ex:ForwardRule
-    a owl:Class ;
-    rdfs:subClassOf ex:Rule ;
-    rdfs:label "Forward Rule" .
-
-ex:BackwardRule
-    a owl:Class ;
-    rdfs:subClassOf ex:Rule ;
-    rdfs:label "Backward Rule" .
-
-# Rule metadata properties
-ex:ruleBody     a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:string .
-ex:ruleName     a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:string .
-ex:ruleVersion  a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:string .
-ex:ruleStatus   a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:string . # active | deprecated
-ex:ruleOrder    a owl:DatatypeProperty ; rdfs:domain ex:Rule ; rdfs:range xsd:integer .
-ex:replacedBy   a owl:ObjectProperty   ; rdfs:domain ex:Rule ; rdfs:range ex:Rule .
 
 # ------------------------------------------------------------
 # Geographic / Census Classes

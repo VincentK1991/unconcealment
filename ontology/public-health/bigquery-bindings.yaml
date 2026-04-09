@@ -32,8 +32,8 @@ tables:
       Source citations embedded in each row (maps to RDF-star provenance).
       NOTE: Only 2021 Health Disparities data is in BigQuery. No annual report data.
     rdfBinding:
-      entityClass: https://kg.unconcealment.io/ontology/HealthDisparityMeasure
-      joinProperty: https://kg.unconcealment.io/ontology/forState
+      entityClass: http://localhost:4321/ontology/HealthDisparityMeasure
+      joinProperty: http://localhost:4321/ontology/forState
       joinExpression: "state_name"    # full state name — join to geographic entity by label
     keyColumns:
       - name: edition
@@ -148,8 +148,8 @@ tables:
       DATA QUALITY: Many quality metric columns use "Not Available" string instead of NULL —
       always filter before casting to INT64. hospital_overall_rating stores "1"-"5" as strings.
     rdfBinding:
-      entityClass: https://kg.unconcealment.io/ontology/Hospital
-      joinProperty: https://kg.unconcealment.io/ontology/cmsProviderID
+      entityClass: http://localhost:4321/ontology/Hospital
+      joinProperty: http://localhost:4321/ontology/cmsProviderID
       joinExpression: "provider_id"
     keyColumns:
       - name: provider_id
@@ -255,8 +255,8 @@ tables:
       signal. Data is from 2015 — a 10-year gap vs current — best for structural comparisons
       not trending. Join to cms_hospital_directory on provider_id for quality+cost analysis.
     rdfBinding:
-      entityClass: https://kg.unconcealment.io/ontology/MedicalProcedure
-      joinProperty: https://kg.unconcealment.io/ontology/cmsProviderID
+      entityClass: http://localhost:4321/ontology/MedicalProcedure
+      joinProperty: http://localhost:4321/ontology/cmsProviderID
       joinExpression: "provider_id"
     keyColumns:
       - name: provider_id
