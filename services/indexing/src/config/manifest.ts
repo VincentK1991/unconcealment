@@ -9,7 +9,12 @@ export interface DatasetRules {
 
 export interface BigQueryConfig {
   enabled: boolean;
+  /** Legacy YAML bindings path. Used by economic-census and public-health datasets. */
   bindingsPath?: string;
+  /** GCP project ID. Used to resolve {project} template variables in R2RML SQL examples. */
+  project?: string;
+  /** BigQuery dataset name. Used to resolve {dataset} template variables in R2RML SQL examples. */
+  dataset?: string;
 }
 
 export interface DatasetConfig {
@@ -19,8 +24,15 @@ export interface DatasetConfig {
   /** Optional per-dataset base URI override. Falls back to manifest-level baseUri. */
   baseUri?: string;
   ontologyPath: string;
-  rules: DatasetRules;
+  /** Optional rules block — omitted for datasets that have no inference rules. */
+  rules?: DatasetRules;
   fusekiDataset: string;
+  /**
+   * Path to an R2RML Turtle bindings file (new format, per docs/decisions/semantic-binding.md).
+   * When set, the backend loads this file into urn:{id}:bindings at startup.
+   * Use rdf-binding.ts to query binding context from Fuseki at query time.
+   */
+  bindingsPath?: string;
   bigquery: BigQueryConfig;
 }
 

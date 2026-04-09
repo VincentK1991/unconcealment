@@ -53,3 +53,17 @@ datasets:
     bigquery:
       enabled: true
       bindingsPath: ontology/public-health/bigquery-bindings.yaml
+
+  - id: insurance
+    label: "Insurance (ACME P&C)"
+    description: "ACME Property & Casualty insurance benchmark — policies, claims, agents, premiums, catastrophes. Source: datadotworld/cwd-benchmark-data. 44-question NL-to-SQL/SPARQL benchmark."
+    ontologyPath: ontology/insurance/core.ttl
+    # No rules at this stage — reasoning rules deferred to a future phase.
+    # bindingsPath uses R2RML Turtle format (new format, per docs/decisions/semantic-binding.md).
+    # Existing datasets retain bigquery.bindingsPath (YAML) for backward compatibility.
+    bindingsPath: ontology/insurance/bindings.ttl
+    fusekiDataset: insurance
+    bigquery:
+      enabled: true
+      project: YOUR_GCP_PROJECT   # replace with your GCP project ID after uploading ACME CSVs
+      dataset: acme_insurance      # BigQuery dataset name (see docs/exploratory_data_analysis/insurance/README.md)
