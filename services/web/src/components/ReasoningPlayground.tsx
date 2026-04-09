@@ -14,12 +14,21 @@ interface PlaygroundResults {
 
 type ResultTab = "table" | "graph" | "turtle";
 
+interface ExampleExplanation {
+  whatItDoes: string;
+  businessLogic: string;
+  howTheRuleWorks: string;
+  howTheQueryWorks: string;
+  tablingNote?: string;
+}
+
 interface ExamplePreset {
   id: string;
   label: string;
   description: string;
   rules: string;
   query: string;
+  explanation: ExampleExplanation;
 }
 
 interface PatternExample {
@@ -148,6 +157,13 @@ WHERE {
 }
 ORDER BY ?sLabel ?oLabel
 LIMIT 20`,
+    explanation: {
+      whatItDoes: "Derives a coAuthor relationship between two Person entities that both appear as authoredBy objects on the same document or report.",
+      businessLogic: "Census reports and documents are frequently co-authored, but the knowledge graph only stores individual authoredBy links. The coAuthor rule surfaces the implicit collaboration network — useful for finding research clusters, identifying domain experts, and tracing institutional relationships between individuals.",
+      howTheRuleWorks: "The rule body finds any two distinct Person entities (?author1, ?author2) that share a common object (?object) via authoredBy. The head asserts coAuthor symmetrically because the two authors are interchangeable. The table() directive prevents infinite recursion: when Jena tries to prove coAuthor(A,B), it would re-enter the rule trying to match A via any intermediate coAuthor link — tabling memoises the proof and breaks the cycle.",
+      howTheQueryWorks: "Selects all coAuthor pairs, binding the predicate IRI as a literal column so the result table shows subject, predicate, object in a uniform triple shape. ORDER BY sorts alphabetically. LIMIT 20 caps results for display.",
+      tablingNote: "coAuthor appears in the rule head. Jena's backward engine would attempt to use the same rule to prove the body of the rule itself, causing infinite regression. -> table(<ex:coAuthor>) tells the engine to memoise the proof goal and terminate.",
+    },
   },
   {
     id: "trend-observation",
@@ -176,6 +192,13 @@ WHERE {
 }
 ORDER BY ?label
 LIMIT 20`,
+    explanation: {
+      whatItDoes: "Assigns the new type ex:TrendObservation to any StatisticalObservation that carries a changeDirection property — marking it as tracking year-over-year change rather than a point-in-time snapshot.",
+      businessLogic: "Analysts querying for trend data currently have to know to FILTER on changeDirection, which is an implementation detail. By materializing TrendObservation as a distinct type, downstream queries can ask for 'all trend observations' without knowing the internal property structure — the same way one queries owl:Class membership in any ontology.",
+      howTheRuleWorks: "The rule head asserts rdf:type ex:TrendObservation on ?obs. The body requires two conditions: ?obs must already have type StatisticalObservation (base type guard), and ?obs must have at least one changeDirection triple (property guard). The variable ?dir is left unbound — only its existence matters, not its value.",
+      howTheQueryWorks: "Queries directly for ex:TrendObservation membership, which only exists after inference. Without the rule this query returns zero rows — making the diff highly visible. The optional geography and measure columns give context to each trend observation.",
+      tablingNote: "rdf:type appears in both the rule head (?obs rdf:type TrendObservation) and the rule body (?obs rdf:type StatisticalObservation). Without tabling, Jena would recursively try to prove the base type guard using the same rule, looping infinitely. -> table(<rdf:type>) memoises all type derivations.",
+    },
   },
   {
     id: "geo-has-measure",
@@ -204,6 +227,12 @@ WHERE {
 }
 ORDER BY ?sLabel ?oLabel
 LIMIT 20`,
+    explanation: {
+      whatItDoes: "Creates a direct ex:hasMeasure link from a GeographicArea to a StatisticalMeasure by bridging through a StatisticalObservation that connects them both.",
+      businessLogic: "The data model records observations as the join point between geography and measure, but users browsing a geography (e.g., Yankton County) want to know directly 'what is measured here?' without traversing through an intermediate node. The hasMeasure shortcut enables faceted geography pages and geo-filtered measure searches.",
+      howTheRuleWorks: "The rule body navigates two different predicates on the same intermediate node: ?obs refersToGeography ?geo and ?obs measures ?measure. The type guard (?measure rdf:type StatisticalMeasure) filters out bad LLM extractions where States or Observations were incorrectly typed as measures. The head asserts the new hasMeasure predicate directly between ?geo and ?measure — skipping the observation entirely.",
+      howTheQueryWorks: "Selects all hasMeasure pairs and binds the predicate IRI as a display column. Since hasMeasure does not exist in the base graph, every row in the result is newly inferred — all rows appear green in the diff.",
+    },
   },
   {
     id: "apportionment-derivedFrom",
@@ -231,6 +260,13 @@ WHERE {
 }
 ORDER BY ?oLabel ?o
 LIMIT 200`,
+    explanation: {
+      whatItDoes: "Follows derivedFrom chains transitively, but only when the terminal node is an Organization — collapsing multi-hop provenance into a single direct link.",
+      businessLogic: "Apportionment data has a multi-step provenance chain: it is derived from a survey, which was derived from an organization. A reader tracing provenance wants a direct link from the apportionment report to the responsible organization — not a two-hop traversal. The rule collapses the chain into a single derivedFrom link to the terminal Organization.",
+      howTheRuleWorks: "The rule body matches a two-hop path: ?a derivedFrom ?b, ?b derivedFrom ?c. The type guard requires ?c to be an Organization — this stops the transitivity at the right terminus and avoids spurious long chains. notEqual(?a, ?c) prevents self-loops. Because derivedFrom appears in both head and body the rule is recursive and requires tabling.",
+      howTheQueryWorks: "Filters to entities whose label contains 'apportionment' to focus the output. Selects their derivedFrom targets — the newly inferred Organization links appear as green rows in the diff.",
+      tablingNote: "derivedFrom is in both the rule head and body. Without tabling, evaluating derivedFrom(A,C) would re-enter the rule trying to prove derivedFrom(A,B), which tries derivedFrom(A,X)... ad infinitum. -> table(<ex:derivedFrom>) memoises each derivedFrom goal on first proof.",
+    },
   },
   {
     id: "reportedIn-transitive",
@@ -261,6 +297,13 @@ WHERE {
 }
 ORDER BY ?cLabel ?aLabel
 LIMIT 20`,
+    explanation: {
+      whatItDoes: "Collapses a two-hop reportedIn chain (Observation → CensusSurvey → ReportDocument) into a direct Observation → ReportDocument link.",
+      businessLogic: "Observations are stored as 'reported in a survey', and surveys are 'reported in a report document', but there is no direct link from observation to report. A document page listing all observations it contains would need a two-hop SPARQL join. The transitive rule materializes that shortcut at query time, enabling document-centric views of the knowledge graph.",
+      howTheRuleWorks: "The body requires three conditions: ?a reportedIn ?b (first hop), ?b reportedIn ?c (second hop), plus type guards ?b rdf:type CensusSurvey and ?c rdf:type ReportDocument. The type guards prevent the rule from firing on malformed chains (e.g., Survey → Organization). notEqual(?a, ?c) blocks self-loops. reportedIn appears in head and body, requiring tabling.",
+      howTheQueryWorks: "Selects pairs where an entity reports into a ReportDocument — only possible via inference. The ?aType column shows what type of entity is being linked, confirming the inference is connecting the right kinds of nodes.",
+      tablingNote: "reportedIn appears in both the head and body of the rule. Without tabling the backward engine would recursively try to prove reportedIn(A,C) by looking for reportedIn(A,B) which triggers the same rule again.",
+    },
   },
   {
     id: "quantified-indicator",
@@ -288,6 +331,13 @@ WHERE {
 }
 ORDER BY ?year ?label
 LIMIT 20`,
+    explanation: {
+      whatItDoes: "Assigns the new type ex:QuantifiedIndicator to any EconomicIndicator that has an explicit hasValue triple — distinguishing concrete numeric indicators from abstract or definitional ones.",
+      businessLogic: "Many economic indicators are catalogued as concepts without an attached numeric value. Those that carry a hasValue are actionable data points ready for computation. Tagging them as QuantifiedIndicator lets analysts query specifically for computable indicators without knowing to filter on hasValue internally.",
+      howTheRuleWorks: "The rule body requires two conditions: the entity must be typed EconomicIndicator (base type guard) and must have at least one hasValue triple (property guard). The variable ?v in 'hasValue ?v' is unbound — only the presence of the property matters, not its value. The head asserts the new QuantifiedIndicator type.",
+      howTheQueryWorks: "Queries for QuantifiedIndicator membership (zero results without inference), then joins hasValue and optional forYear for context. Every row is a new inference since QuantifiedIndicator does not exist in the base graph.",
+      tablingNote: "rdf:type appears in both the rule head (type QuantifiedIndicator) and the rule body (type EconomicIndicator). The engine would recurse trying to prove the base type via the same rule. -> table(<rdf:type>) memoises all type derivations.",
+    },
   },
   {
     id: "survey-yielded",
@@ -313,6 +363,12 @@ WHERE {
 }
 ORDER BY ?surveyLabel ?obsLabel
 LIMIT 20`,
+    explanation: {
+      whatItDoes: "Derives an ex:yielded link from each CensusSurvey back to every StatisticalObservation that was derived from it — the exact reverse of the stored derivedFrom direction.",
+      businessLogic: "Data was ingested from the perspective of observations: each observation records which survey it came from. But a survey page needs to answer 'what did this survey produce?' — which requires traversing derivedFrom in reverse. The yielded rule makes that navigation first-class without storing duplicate triples at ingest time.",
+      howTheRuleWorks: "The rule head asserts ?survey ex:yielded ?obs. The body matches the existing derivedFrom triple in the opposite variable order: ?obs derivedFrom ?survey. Type guards (?obs rdf:type StatisticalObservation, ?survey rdf:type CensusSurvey) ensure only clean Survey→Observation pairs produce the inverse link, filtering out bad extractions where Organizations or Documents also appear as derivedFrom subjects. No tabling is needed since ex:yielded is a brand-new predicate that never appears in any rule body.",
+      howTheQueryWorks: "Selects all yielded pairs grouped by survey label. Since yielded does not exist in the base graph, every row is a new inference — all rows appear green in the diff.",
+    },
   },
   {
     id: "co-observation",
@@ -341,6 +397,12 @@ WHERE {
 }
 ORDER BY ?aLabel
 LIMIT 20`,
+    explanation: {
+      whatItDoes: "Derives an ex:coObservation peer link between any two StatisticalObservations that share the same source CensusSurvey via their derivedFrom links.",
+      businessLogic: "Observations from the same survey are methodologically related — they share the same population, sampling frame, and collection period. Surfacing co-observation enables analysts to find companion metrics: if you are looking at '2023 U.S. poverty rate', you can discover that '2023 Puerto Rico poverty rate' comes from the same survey and is directly comparable.",
+      howTheRuleWorks: "The rule body finds two distinct observations (?a and ?b) that both have derivedFrom links to the same ?survey. Three type guards keep the rule clean: ?a and ?b must be StatisticalObservations, ?survey must be a CensusSurvey. notEqual(?a, ?b) prevents self-loops. The head asserts coObservation in both directions.",
+      howTheQueryWorks: "The FILTER(STR(?a) < STR(?b)) deduplicates the bidirectional coObservation pairs by keeping only the lexicographically smaller IRI as subject. Without this filter every pair would appear twice (A↔B and B↔A). All rows are new since coObservation is a brand-new predicate.",
+    },
   },
   {
     id: "inherit-group",
@@ -372,6 +434,13 @@ WHERE {
 }
 ORDER BY ?obsLabel
 LIMIT 20`,
+    explanation: {
+      whatItDoes: "Propagates the refersToGroup link from a CensusSurvey down to each StatisticalObservation derived from it — observations inherit the population group their source survey was designed to study.",
+      businessLogic: "A survey like the American Community Survey targets specific population groups (e.g., Women Aged 15–50 with a Recent Birth). The observations derived from it implicitly share that target group, but this connection is only stored on the survey, not on each individual observation. Inheriting refersToGroup makes the group affiliation queryable at the observation level — enabling group-filtered retrieval without knowing which survey an observation came from.",
+      howTheRuleWorks: "The rule body navigates two links on the same survey node: ?obs derivedFrom ?survey and ?survey refersToGroup ?grp. Three type guards ensure clean results: ?obs is a StatisticalObservation, ?survey is a CensusSurvey, ?grp is a PopulationGroup. The head asserts the same refersToGroup predicate directly on ?obs.",
+      howTheQueryWorks: "Selects observation–group pairs where both are correctly typed. The base graph already has a small number of direct observation→group links; the diff highlights only the newly inherited ones propagated from the survey.",
+      tablingNote: "refersToGroup appears in both head and body — on different subjects (?obs vs ?survey), but the backward engine does not track subject identity when matching rule heads. It would attempt to prove ?survey refersToGroup ?grp by re-entering the inheritGroup rule with ?survey in the ?obs role, causing infinite recursion. -> table(<ex:refersToGroup>) memoises the proof.",
+    },
   },
 ];
 
@@ -399,7 +468,10 @@ const PATTERN_GROUPS: PatternGroup[] = [
       "A symmetric role rule infers a bidirectional relationship between two entities that share a connection to a common third entity. If two people both authored the same document, they are co-authors of each other.",
     usefulness:
       "Discovers implicit peer relationships — co-authorship, co-membership, co-location — that are never stored explicitly but derivable from shared participation.",
-    examples: [{ id: "coAuthor", label: "coAuthor" }],
+    examples: [
+      { id: "coAuthor", label: "coAuthor" },
+      { id: "co-observation", label: "coObservation" },
+    ],
   },
   {
     id: "bridge",
@@ -559,6 +631,43 @@ export default function ReasoningPlayground({ datasetId }: { datasetId: string }
                 </button>
               ))}
             </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Example Explanation ── */}
+      {(() => {
+        const preset = EXAMPLE_MAP.get(selectedExampleId);
+        if (!preset) return null;
+        const ex = preset.explanation;
+        return (
+          <div style={explanationBlockStyle}>
+            <div style={explanationRowStyle}>
+              <div>
+                <div style={explanationLabelStyle}>What it does</div>
+                <div style={explanationTextStyle}>{ex.whatItDoes}</div>
+              </div>
+              <div>
+                <div style={explanationLabelStyle}>Business logic</div>
+                <div style={explanationTextStyle}>{ex.businessLogic}</div>
+              </div>
+            </div>
+            <div style={explanationRowStyle}>
+              <div>
+                <div style={explanationLabelStyle}>How the rule works</div>
+                <div style={explanationTextStyle}>{ex.howTheRuleWorks}</div>
+              </div>
+              <div>
+                <div style={explanationLabelStyle}>How the query works</div>
+                <div style={explanationTextStyle}>{ex.howTheQueryWorks}</div>
+              </div>
+            </div>
+            {ex.tablingNote && (
+              <div style={tablingNoteStyle}>
+                <span style={tablingNoteLabelStyle}>Tabling note — </span>
+                {ex.tablingNote}
+              </div>
+            )}
           </div>
         );
       })()}
@@ -836,6 +945,51 @@ const patternExampleButtonStyle = (active: boolean): React.CSSProperties => ({
   borderRadius: "6px",
   cursor: "pointer",
 });
+
+const explanationBlockStyle: React.CSSProperties = {
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: "8px",
+  padding: "1rem 1.25rem",
+  marginBottom: "1rem",
+};
+
+const explanationRowStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: "1rem",
+  marginBottom: "0.75rem",
+};
+
+const explanationLabelStyle: React.CSSProperties = {
+  fontSize: "0.7rem",
+  fontWeight: 600,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+  color: "#94a3b8",
+  marginBottom: "0.25rem",
+};
+
+const explanationTextStyle: React.CSSProperties = {
+  fontSize: "0.82rem",
+  color: "#334155",
+  lineHeight: 1.55,
+};
+
+const tablingNoteStyle: React.CSSProperties = {
+  marginTop: "0.25rem",
+  padding: "0.5rem 0.75rem",
+  background: "#fefce8",
+  border: "1px solid #fde047",
+  borderRadius: "6px",
+  fontSize: "0.8rem",
+  color: "#713f12",
+  lineHeight: 1.5,
+};
+
+const tablingNoteLabelStyle: React.CSSProperties = {
+  fontWeight: 700,
+};
 
 const hintStyle: React.CSSProperties = {
   fontWeight: 400,
