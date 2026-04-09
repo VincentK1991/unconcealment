@@ -2,7 +2,7 @@
 
 > **Dataset ID**: `insurance`
 > **Source**: [`datadotworld/cwd-benchmark-data`](https://github.com/datadotworld/cwd-benchmark-data)
-> **Type**: Structured data (BigQuery) — no unstructured PDF pipeline at this stage
+> **Type**: Structured data (PostgreSQL, `acme_insurance` schema) — no unstructured PDF pipeline at this stage
 > **Benchmark**: 44 natural language questions with paired SQL + SPARQL ground truth answers
 
 ---
@@ -25,7 +25,7 @@ The ontology namespace `http://data.world/schema/insurance/` (prefix `in:`) is p
 
 ## 2. Schema — 13 Core Tables
 
-The relational schema is defined in `ACME_Insurance/DDL/ACME_small.ddl`. The 13 tables loaded into BigQuery are:
+The relational schema is defined in `ACME_Insurance/DDL/ACME_small.ddl`. The 13 tables loaded into PostgreSQL (`acme_insurance` schema) are:
 
 ### Primary Entities
 
@@ -76,7 +76,7 @@ agreement_party_role          premium                    loss_  loss_  expense_ 
 |---|---|
 | **Total Loss** | `loss_payment + loss_reserve + expense_payment + expense_reserve` |
 | **Loss Ratio** | `Total Loss / Premium Amount` |
-| **Settlement Time** | `DATE_DIFF(claim_close_date, claim_open_date, DAY)` |
+| **Settlement Time** | `(claim_close_date::date - claim_open_date::date)` (PostgreSQL interval arithmetic) |
 
 ---
 
@@ -104,85 +104,81 @@ Key object properties: `in:against` (Claim → PolicyCoverageDetail), `in:soldBy
 
 ---
 
-## 4. Data Setup (BigQuery)
+## 4. Data Setup (PostgreSQL)
 
-The ACME Insurance data is **not** a BigQuery public dataset. You must upload the CSV files to your own GCP project.
+The ACME Insurance data is loaded into the existing `postgres-kg` PostgreSQL instance under the `acme_insurance` schema. No additional infrastructure is required.
 
 ### Step 1 — Download CSV files
 
 ```bash
 git clone https://github.com/datadotworld/cwd-benchmark-data.git
 ls cwd-benchmark-data/ACME_Insurance/data/*.csv
-# 28 CSV files — 13 core tables + specialized sub-tables
+# 13 core CSV files (one per table)
 ```
 
-### Step 2 — Create BigQuery dataset
+### Step 2 — Start postgres-kg (schema auto-created)
+
+The `postgres-kg` container runs `infra/postgres/init-insurance.sql` on first start via `docker-entrypoint-initdb.d`. This creates the `acme_insurance` schema and all 13 tables with proper FK constraints and indexes.
 
 ```bash
-export GCP_PROJECT=your-project-id
-
-bq mk --dataset ${GCP_PROJECT}:acme_insurance
+docker compose up -d postgres-kg
 ```
 
-### Step 3 — Load tables
+### Step 3 — Load CSVs (follow FK insertion order)
 
-Use the DDL schema from `ACME_Insurance/DDL/ACME_small.ddl` for column types. Example for the core tables:
+Connect with `psql` and use `\copy` to load data. FK constraints require loading parent tables before child tables:
 
-```bash
-DATA_DIR=cwd-benchmark-data/ACME_Insurance/data
+```sql
+-- 1. No dependencies
+\copy acme_insurance.catastrophe          FROM 'Catastrophe.csv'          CSV HEADER;
+\copy acme_insurance.policy               FROM 'Policy.csv'               CSV HEADER;
 
-# Core entity tables
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.policy ${DATA_DIR}/Policy.csv
+-- 2. Depends on policy
+\copy acme_insurance.policy_coverage_detail FROM 'Policy_Coverage_Detail.csv' CSV HEADER;
+\copy acme_insurance.agreement_party_role  FROM 'Agreement_Party_Role.csv'  CSV HEADER;
 
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.claim ${DATA_DIR}/Claim.csv
+-- 3. Depends on catastrophe
+\copy acme_insurance.claim                FROM 'Claim.csv'                CSV HEADER;
 
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.catastrophe ${DATA_DIR}/Catastrophe.csv
+-- 4. Depends on policy_coverage_detail
+\copy acme_insurance.policy_amount        FROM 'Policy_Amount.csv'        CSV HEADER;
 
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.policy_coverage_detail ${DATA_DIR}/Policy_Coverage_Detail.csv
+-- 5. Depends on policy_amount
+\copy acme_insurance.premium              FROM 'Premium.csv'              CSV HEADER;
 
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.claim_coverage ${DATA_DIR}/Claim_Coverage.csv
+-- 6. Depends on claim + policy_coverage_detail
+\copy acme_insurance.claim_coverage       FROM 'Claim_Coverage.csv'       CSV HEADER;
 
-# Financial tables
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.claim_amount ${DATA_DIR}/Claim_Amount.csv
+-- 7. Depends on claim
+\copy acme_insurance.claim_amount         FROM 'Claim_Amount.csv'         CSV HEADER;
 
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.loss_payment ${DATA_DIR}/Loss_Payment.csv
-
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.loss_reserve ${DATA_DIR}/Loss_Reserve.csv
-
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.expense_payment ${DATA_DIR}/Expense_Payment.csv
-
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.expense_reserve ${DATA_DIR}/Expense_Reserve.csv
-
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.policy_amount ${DATA_DIR}/Policy_Amount.csv
-
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.premium ${DATA_DIR}/Premium.csv
-
-bq load --autodetect --source_format=CSV \
-  ${GCP_PROJECT}:acme_insurance.agreement_party_role ${DATA_DIR}/Agreement_Party_Role.csv
+-- 8. Depends on claim_amount
+\copy acme_insurance.loss_payment         FROM 'Loss_Payment.csv'         CSV HEADER;
+\copy acme_insurance.loss_reserve         FROM 'Loss_Reserve.csv'         CSV HEADER;
+\copy acme_insurance.expense_payment      FROM 'Expense_Payment.csv'      CSV HEADER;
+\copy acme_insurance.expense_reserve      FROM 'Expense_Reserve.csv'      CSV HEADER;
 ```
 
-### Step 4 — Update manifest
+### Step 4 — Verify row counts
 
-Edit `ontology/manifest.yaml`, insurance dataset entry:
+```sql
+SELECT schemaname, tablename, n_live_tup
+FROM pg_stat_user_tables
+WHERE schemaname = 'acme_insurance'
+ORDER BY tablename;
+```
+
+### Step 5 — Manifest is already configured
+
+The `ontology/manifest.yaml` insurance entry already has the correct `postgres` config:
 
 ```yaml
-bigquery:
+postgres:
   enabled: true
-  project: your-project-id   # ← replace this
-  dataset: acme_insurance
+  schema: acme_insurance
 ```
+
+No changes needed unless you use a different schema name.
 
 ---
 
@@ -272,7 +268,7 @@ These queries run against the Java backend's `POST /query/tbox` endpoint (no inf
 
 ## 6. R2RML to SQL Framework
 
-The `ontology/insurance/bindings.ttl` file is an **R2RML binding layer** that connects the insurance OWL ontology to the BigQuery relational schema. It follows the W3C R2RML Recommendation (`http://www.w3.org/ns/r2rml#`).
+The `ontology/insurance/bindings.ttl` file is an **R2RML binding layer** that connects the insurance OWL ontology to the PostgreSQL relational schema. It follows the W3C R2RML Recommendation (`http://www.w3.org/ns/r2rml#`).
 
 ### How It Works
 
@@ -286,25 +282,24 @@ urn:insurance:bindings  (Fuseki named graph)
 rdf-binding.ts  →  buildRdfBindingContext('insurance', backendUrl)
        │
        ▼  appended to LLM prompt
-LLM generates BigQuery SQL
+LLM generates PostgreSQL SQL
        │
        ▼
-BigQuery executes SQL against acme_insurance dataset
+postgres-kg executes SQL against acme_insurance schema
 ```
 
 ### SQL Template Variables
 
-SQL examples in `bindings.ttl` use two template variables that are resolved at query time from `manifest.yaml`:
+SQL examples in `bindings.ttl` use a template variable resolved at query time from `manifest.yaml`:
 
 | Variable | Manifest key | Example value |
 |---|---|---|
-| `{project}` | `bigquery.project` | `my-gcp-project` |
-| `{dataset}` | `bigquery.dataset` | `acme_insurance` |
+| `{schema}` | `postgres.schema` | `acme_insurance` |
 
 A fully resolved SQL example looks like:
 ```sql
 SELECT COUNT(*) AS NoOfClaims
-FROM `my-gcp-project.acme_insurance.claim`
+FROM acme_insurance.claim
 ```
 
 ### Adding This Framework to a Future Dataset
@@ -312,7 +307,7 @@ FROM `my-gcp-project.acme_insurance.claim`
 To add R2RML bindings to any new dataset:
 1. Create `ontology/{id}/bindings.ttl` with R2RML TriplesMap definitions
 2. Add `bindingsPath: ontology/{id}/bindings.ttl` to the manifest entry
-3. Add `bigquery.project` and `bigquery.dataset` to the manifest entry
+3. Add `postgres.schema` (or `bigquery.project`/`bigquery.dataset`) to the manifest entry
 4. The backend auto-loads the file into `urn:{id}:bindings` — no code changes needed
 5. Call `buildRdfBindingContext(datasetId, backendUrl)` from the indexing pipeline
 
@@ -351,10 +346,10 @@ WHERE {
 
 ### SQL Benchmark
 
-The 44 SQL queries in `bindings.ttl` are the ground truth answers, adapted for BigQuery syntax (backtick-quoted fully qualified table names, `EXTRACT(YEAR FROM ...)` instead of `YEAR(...)`).
+The 44 SQL queries in `bindings.ttl` are the ground truth answers, adapted for PostgreSQL syntax (schema-qualified table names `{schema}.tablename`, interval arithmetic `(close_date::date - open_date::date)` instead of `DATE_DIFF`).
 
 To run a benchmark question end-to-end:
 1. Present the natural language question to the LLM with `buildRdfBindingContext('insurance', backendUrl)` as context
-2. LLM generates BigQuery SQL
-3. Execute against `{project}.acme_insurance`
+2. LLM generates PostgreSQL SQL
+3. Execute against `postgres-kg` (schema `acme_insurance`) — use the web SQL tab at `/dataset/insurance/sql`
 4. Compare result against the ground truth SQL result from `acme-benchmark.ttl`

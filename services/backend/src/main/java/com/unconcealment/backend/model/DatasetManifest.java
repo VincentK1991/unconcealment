@@ -74,6 +74,7 @@ public class DatasetManifest {
          */
         private String bindingsPath;
         private BigQueryConfig bigquery;
+        private PostgresConfig postgres;
 
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
@@ -101,6 +102,9 @@ public class DatasetManifest {
 
         public BigQueryConfig getBigquery() { return bigquery; }
         public void setBigquery(BigQueryConfig bigquery) { this.bigquery = bigquery; }
+
+        public PostgresConfig getPostgres() { return postgres; }
+        public void setPostgres(PostgresConfig postgres) { this.postgres = postgres; }
 
         /** Returns named graph URIs derived from the dataset id. */
         public NamedGraphs namedGraphs() {
@@ -135,6 +139,25 @@ public class DatasetManifest {
         public void setProject(String project) { this.project = project; }
         public String getDataset() { return dataset; }
         public void setDataset(String dataset) { this.dataset = dataset; }
+    }
+
+    /**
+     * PostgreSQL structured data config.
+     * Used by datasets whose relational data lives in the kg Postgres database
+     * (e.g. insurance with the acme_insurance schema).
+     */
+    public static class PostgresConfig {
+        private boolean enabled;
+        /**
+         * PostgreSQL schema name within the kg database.
+         * Used to resolve {schema} template variables in R2RML SQL bindings.
+         */
+        private String schema;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getSchema() { return schema; }
+        public void setSchema(String schema) { this.schema = schema; }
     }
 
     /**

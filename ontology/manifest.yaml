@@ -63,7 +63,6 @@ datasets:
     # Existing datasets retain bigquery.bindingsPath (YAML) for backward compatibility.
     bindingsPath: ontology/insurance/bindings.ttl
     fusekiDataset: insurance
-    bigquery:
+    postgres:
       enabled: true
-      project: YOUR_GCP_PROJECT   # replace with your GCP project ID after uploading ACME CSVs
-      dataset: acme_insurance      # BigQuery dataset name (see docs/exploratory_data_analysis/insurance/README.md)
+      schema: acme_insurance  # PostgreSQL schema within the kg database (see infra/postgres/init-insurance.sql)

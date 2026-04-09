@@ -12,8 +12,9 @@ import { getDataset } from "../config/manifest";
  * public-health).
  *
  * SQL template variables in ex:sql values are resolved from manifest config:
- *   {project} → bigquery.project
- *   {dataset} → bigquery.dataset
+ *   {schema}  → postgres.schema   (Postgres datasets, e.g. insurance)
+ *   {project} → bigquery.project  (BigQuery datasets)
+ *   {dataset} → bigquery.dataset  (BigQuery datasets)
  *
  * Usage:
  *   // Check which binding format the dataset uses
@@ -85,16 +86,24 @@ export function datasetHasRdfBindings(datasetId: string): boolean {
 }
 
 /**
- * Resolves {project} and {dataset} template variables in a SQL string
- * using the manifest's bigquery config for the given dataset.
+ * Resolves SQL template variables using manifest config for the given dataset.
+ *   {schema}  — resolved from manifest.postgres.schema  (Postgres datasets)
+ *   {project} — resolved from manifest.bigquery.project (BigQuery datasets)
+ *   {dataset} — resolved from manifest.bigquery.dataset (BigQuery datasets)
  */
 function resolveTemplates(sql: string, datasetId: string): string {
   const dataset = getDataset(datasetId);
-  const bq = dataset.bigquery as any;
-  if (!bq) return sql;
-  return sql
-    .replace(/\{project\}/g, bq.project ?? "{project}")
-    .replace(/\{dataset\}/g, bq.dataset ?? "{dataset}");
+  const pg = (dataset as any).postgres;
+  if (pg) {
+    return sql.replace(/\{schema\}/g, pg.schema ?? "{schema}");
+  }
+  const bq = (dataset as any).bigquery;
+  if (bq) {
+    return sql
+      .replace(/\{project\}/g, bq.project ?? "{project}")
+      .replace(/\{dataset\}/g, bq.dataset ?? "{dataset}");
+  }
+  return sql;
 }
 
 /**
@@ -167,14 +176,15 @@ export async function buildRdfBindingContext(
   }
 
   // Build human-readable context string for LLM
-  const bq = (getDataset(datasetId) as any).bigquery;
-  const projectLabel = bq?.project ?? "YOUR_GCP_PROJECT";
-  const datasetLabel = bq?.dataset ?? "YOUR_DATASET";
+  const pg = (getDataset(datasetId) as any).postgres;
+  const sourceLabel = pg
+    ? `PostgreSQL schema: ${pg.schema ?? "unknown"}`
+    : (() => {
+        const bq = (getDataset(datasetId) as any).bigquery;
+        return `BigQuery project: ${bq?.project ?? "?"}, dataset: ${bq?.dataset ?? "?"}`;
+      })();
 
-  const lines: string[] = [
-    `Available tables (BigQuery project: ${projectLabel}, dataset: ${datasetLabel}):`,
-    "",
-  ];
+  const lines: string[] = [`Available tables (${sourceLabel}):`, ""];
 
   for (const [, entry] of maps) {
     lines.push(`## ${entry.label}`);

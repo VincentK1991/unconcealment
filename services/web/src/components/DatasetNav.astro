@@ -1,9 +1,21 @@
 ---
+import { readFileSync } from "fs";
+import { parse } from "yaml";
+import path from "path";
+import { fileURLToPath } from "url";
+
 interface Props {
   datasetId: string;
-  current: "overview" | "entities" | "documents" | "ontology" | "rules" | "normalization" | "reasoning";
+  current: "overview" | "entities" | "documents" | "ontology" | "rules" | "normalization" | "reasoning" | "sql";
 }
 const { datasetId, current } = Astro.props;
+
+// Read manifest to determine which optional tabs to show (e.g. SQL for postgres-enabled datasets).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const manifestPath = process.env.MANIFEST_PATH ?? path.resolve(__dirname, "../../../../ontology/manifest.yaml");
+const manifest = parse(readFileSync(manifestPath, "utf8")) as { datasets: Array<{ id: string; postgres?: { enabled?: boolean } }> };
+const datasetConfig = manifest.datasets.find((d) => d.id === datasetId);
+const showSqlTab = datasetConfig?.postgres?.enabled === true;
 
 const tabs = [
   { id: "overview",      label: "Overview",      href: `/dataset/${datasetId}`,                  icon: "hub" },
@@ -13,6 +25,7 @@ const tabs = [
   { id: "rules",         label: "Rules",         href: `/dataset/${datasetId}/rules`,             icon: "rule" },
   { id: "normalization", label: "Normalization",  href: `/dataset/${datasetId}/normalization`,     icon: "merge" },
   { id: "reasoning",    label: "Reasoning",      href: `/dataset/${datasetId}/reasoning`,         icon: "psychology" },
+  ...(showSqlTab ? [{ id: "sql", label: "SQL", href: `/dataset/${datasetId}/sql`, icon: "table_chart" }] : []),
 ];
 ---
 

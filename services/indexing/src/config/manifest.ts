@@ -17,6 +17,16 @@ export interface BigQueryConfig {
   dataset?: string;
 }
 
+export interface PostgresConfig {
+  enabled: boolean;
+  /**
+   * PostgreSQL schema name within the kg database.
+   * Used to resolve {schema} template variables in R2RML SQL examples.
+   * Tables are created by infra/postgres/init-insurance.sql.
+   */
+  schema: string;
+}
+
 export interface DatasetConfig {
   id: string;
   label: string;
@@ -33,7 +43,10 @@ export interface DatasetConfig {
    * Use rdf-binding.ts to query binding context from Fuseki at query time.
    */
   bindingsPath?: string;
-  bigquery: BigQueryConfig;
+  /** Present for datasets whose structured data lives in BigQuery (economic-census, public-health). */
+  bigquery?: BigQueryConfig;
+  /** Present for datasets whose structured data lives in the kg PostgreSQL database (insurance). */
+  postgres?: PostgresConfig;
 }
 
 export interface IriMintingConfig {

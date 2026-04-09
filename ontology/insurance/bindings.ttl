@@ -19,13 +19,12 @@
 #
 # DATA SETUP REQUIRED before using this binding:
 #   1. Download CSVs from: https://github.com/datadotworld/cwd-benchmark-data/tree/main/ACME_Insurance/data/
-#   2. Create BigQuery dataset: bq mk --dataset YOUR_PROJECT:acme_insurance
-#   3. Load tables using schema from ACME_small.ddl
-#   4. Set bigquery.project and bigquery.dataset in ontology/manifest.yaml
+#   2. Run infra/postgres/init-insurance.sql to create the acme_insurance schema
+#   3. Load CSVs using psql \copy commands (see docs/exploratory_data_analysis/insurance/README.md)
+#   4. Set postgres.schema in ontology/manifest.yaml (default: acme_insurance)
 #
 # SQL template variables:
-#   {project} — resolved from manifest.bigquery.project at query time
-#   {dataset} — resolved from manifest.bigquery.dataset at query time
+#   {schema} — resolved from manifest.postgres.schema at query time
 #
 # Join key conventions (follow the DDL foreign key graph):
 #   policy              ←→ policy_coverage_detail  via policy_identifier
@@ -56,11 +55,11 @@
     rr:logicalTable [ rr:sqlQuery """
         SELECT policy_identifier, policy_number, effective_date, expiration_date,
                insurance_type_code, status_code
-        FROM `{project}.{dataset}.policy`
+        FROM {schema}.policy
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/Policy-{policy_identifier}" ;
+        rr:template "{schema}/Policy-{policy_identifier}" ;
         rr:class in:Policy
     ] ;
 
@@ -77,7 +76,7 @@
         rr:objectMap [ rr:column "expiration_date" ; rr:datatype xsd:dateTime ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "policy_identifier" ;
     ex:queryExample
         ex:Policy_q01,
@@ -89,14 +88,14 @@ ex:Policy_q01
     a ex:QueryExample ;
     rdfs:label "How many policies do we have?" ;
     ex:sql """SELECT COUNT(*) AS NoOfPolicy
-FROM `{project}.{dataset}.policy`""" .
+FROM {schema}.policy""" .
 
 ex:Policy_q02
     a ex:QueryExample ;
     rdfs:label "Return all policies and the agents that sold them by policy number and agent id" ;
     ex:sql """SELECT policy.policy_number, apr.party_identifier AS agentId
-FROM `{project}.{dataset}.policy` policy
-JOIN `{project}.{dataset}.agreement_party_role` apr
+FROM {schema}.policy policy
+JOIN {schema}.agreement_party_role apr
   ON apr.agreement_identifier = policy.policy_identifier
 WHERE apr.party_role_code = 'AG'""" .
 
@@ -104,8 +103,8 @@ ex:Policy_q03
     a ex:QueryExample ;
     rdfs:label "Return all policies and their policy holder by id" ;
     ex:sql """SELECT policy.policy_number, apr.party_identifier AS policyHolderId
-FROM `{project}.{dataset}.policy` policy
-JOIN `{project}.{dataset}.agreement_party_role` apr
+FROM {schema}.policy policy
+JOIN {schema}.agreement_party_role apr
   ON apr.agreement_identifier = policy.policy_identifier
 WHERE apr.party_role_code = 'PH'""" .
 
@@ -113,12 +112,12 @@ ex:Policy_q04
     a ex:QueryExample ;
     rdfs:label "What is the premium amount of all policies by policy number?" ;
     ex:sql """SELECT policy.policy_number, pa.policy_amount AS premiumAmount
-FROM `{project}.{dataset}.policy` policy
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+FROM {schema}.policy policy
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_identifier = policy.policy_identifier
-JOIN `{project}.{dataset}.policy_amount` pa
+JOIN {schema}.policy_amount pa
   ON pa.policy_coverage_detail_identifier = pcd.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.premium` pr
+JOIN {schema}.premium pr
   ON pr.policy_amount_identifier = pa.policy_amount_identifier""" .
 
 # ------------------------------------------------------------
@@ -136,11 +135,11 @@ JOIN `{project}.{dataset}.premium` pr
     rr:logicalTable [ rr:sqlQuery """
         SELECT claim_identifier, company_claim_number, claim_open_date, claim_close_date,
                catastrophe_identifier
-        FROM `{project}.{dataset}.claim`
+        FROM {schema}.claim
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/Claim-{claim_identifier}" ;
+        rr:template "{schema}/Claim-{claim_identifier}" ;
         rr:class in:Claim
     ] ;
 
@@ -157,7 +156,7 @@ JOIN `{project}.{dataset}.premium` pr
         rr:objectMap [ rr:column "claim_close_date" ; rr:datatype xsd:dateTime ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "claim_identifier" ;
     ex:queryExample
         ex:Claim_q01,
@@ -169,26 +168,26 @@ ex:Claim_q01
     a ex:QueryExample ;
     rdfs:label "How many claims do we have?" ;
     ex:sql """SELECT COUNT(*) AS NoOfClaims
-FROM `{project}.{dataset}.claim`""" .
+FROM {schema}.claim""" .
 
 ex:Claim_q02
     a ex:QueryExample ;
     rdfs:label "Return all claims by claim number that were closed in 2019" ;
     ex:sql """SELECT company_claim_number
-FROM `{project}.{dataset}.claim`
+FROM {schema}.claim
 WHERE EXTRACT(YEAR FROM claim_close_date) = 2019""" .
 
 ex:Claim_q03
     a ex:QueryExample ;
     rdfs:label "What is the average time to settle a claim by policy number?" ;
     ex:sql """SELECT policy.policy_number,
-       AVG(DATE_DIFF(claim.claim_close_date, claim.claim_open_date, DAY)) AS avgSettlementDays
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.claim_coverage` cc
+       AVG((claim.claim_close_date::date - claim.claim_open_date::date)) AS avgSettlementDays
+FROM {schema}.claim claim
+JOIN {schema}.claim_coverage cc
   ON cc.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_coverage_detail_identifier = cc.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.policy` policy
+JOIN {schema}.policy policy
   ON policy.policy_identifier = pcd.policy_identifier
 WHERE claim.claim_close_date IS NOT NULL
 GROUP BY policy.policy_number""" .
@@ -199,16 +198,16 @@ ex:Claim_q04
     ex:sql """SELECT apr.party_identifier AS policyHolderId,
        claim.company_claim_number,
        cat.catastrophe_name
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.catastrophe` cat
+FROM {schema}.claim claim
+JOIN {schema}.catastrophe cat
   ON cat.catastrophe_identifier = claim.catastrophe_identifier
-JOIN `{project}.{dataset}.claim_coverage` cc
+JOIN {schema}.claim_coverage cc
   ON cc.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_coverage_detail_identifier = cc.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.policy` policy
+JOIN {schema}.policy policy
   ON policy.policy_identifier = pcd.policy_identifier
-JOIN `{project}.{dataset}.agreement_party_role` apr
+JOIN {schema}.agreement_party_role apr
   ON apr.agreement_identifier = policy.policy_identifier
 WHERE apr.party_role_code = 'PH'""" .
 
@@ -225,11 +224,11 @@ WHERE apr.party_role_code = 'PH'""" .
 
     rr:logicalTable [ rr:sqlQuery """
         SELECT catastrophe_identifier, catastrophe_name, catastrophe_type_code
-        FROM `{project}.{dataset}.catastrophe`
+        FROM {schema}.catastrophe
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/Catastrophe-{catastrophe_identifier}" ;
+        rr:template "{schema}/Catastrophe-{catastrophe_identifier}" ;
         rr:class in:Catastrophe
     ] ;
 
@@ -238,7 +237,7 @@ WHERE apr.party_role_code = 'PH'""" .
         rr:objectMap [ rr:column "catastrophe_name" ; rr:datatype xsd:string ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "catastrophe_identifier" ;
     ex:queryExample
         ex:Catastrophe_q01,
@@ -250,14 +249,14 @@ ex:Catastrophe_q01
     ex:sql """SELECT claim.company_claim_number,
        cat.catastrophe_name,
        policy.policy_number
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.catastrophe` cat
+FROM {schema}.claim claim
+JOIN {schema}.catastrophe cat
   ON cat.catastrophe_identifier = claim.catastrophe_identifier
-JOIN `{project}.{dataset}.claim_coverage` cc
+JOIN {schema}.claim_coverage cc
   ON cc.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_coverage_detail_identifier = cc.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.policy` policy
+JOIN {schema}.policy policy
   ON policy.policy_identifier = pcd.policy_identifier""" .
 
 ex:Catastrophe_q02
@@ -267,16 +266,16 @@ ex:Catastrophe_q02
        policy.policy_number,
        claim.company_claim_number,
        cat.catastrophe_name
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.catastrophe` cat
+FROM {schema}.claim claim
+JOIN {schema}.catastrophe cat
   ON cat.catastrophe_identifier = claim.catastrophe_identifier
-JOIN `{project}.{dataset}.claim_coverage` cc
+JOIN {schema}.claim_coverage cc
   ON cc.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_coverage_detail_identifier = cc.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.policy` policy
+JOIN {schema}.policy policy
   ON policy.policy_identifier = pcd.policy_identifier
-JOIN `{project}.{dataset}.agreement_party_role` apr
+JOIN {schema}.agreement_party_role apr
   ON apr.agreement_identifier = policy.policy_identifier
 WHERE apr.party_role_code = 'AG'""" .
 
@@ -295,11 +294,11 @@ WHERE apr.party_role_code = 'AG'""" .
         SELECT policy_coverage_detail_identifier, policy_identifier,
                effective_date, expiration_date,
                inclusion_exclusion_code, coverage_description
-        FROM `{project}.{dataset}.policy_coverage_detail`
+        FROM {schema}.policy_coverage_detail
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/PolicyCoverageDetail-{policy_coverage_detail_identifier}" ;
+        rr:template "{schema}/PolicyCoverageDetail-{policy_coverage_detail_identifier}" ;
         rr:class in:PolicyCoverageDetail
     ] ;
 
@@ -324,7 +323,7 @@ WHERE apr.party_role_code = 'AG'""" .
         ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "policy_coverage_detail_identifier" ;
     ex:queryExample ex:PCD_q01 .
 
@@ -335,34 +334,34 @@ ex:PCD_q01
        apr.party_identifier AS agentId,
        SUM(ca_lp.claim_amount + ca_lr.claim_amount + ca_ep.claim_amount + ca_er.claim_amount)
          / SUM(pa.policy_amount) AS lossRatio
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.claim_amount` ca_lp
+FROM {schema}.claim claim
+JOIN {schema}.claim_amount ca_lp
   ON ca_lp.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_payment`
+JOIN {schema}.loss_payment
   ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_lr
+JOIN {schema}.claim_amount ca_lr
   ON ca_lr.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_reserve`
+JOIN {schema}.loss_reserve
   ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_ep
+JOIN {schema}.claim_amount ca_ep
   ON ca_ep.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_payment`
+JOIN {schema}.expense_payment
   ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_er
+JOIN {schema}.claim_amount ca_er
   ON ca_er.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_reserve`
+JOIN {schema}.expense_reserve
   ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_coverage` cc
+JOIN {schema}.claim_coverage cc
   ON cc.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_coverage_detail_identifier = cc.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.policy` policy
+JOIN {schema}.policy policy
   ON policy.policy_identifier = pcd.policy_identifier
-JOIN `{project}.{dataset}.policy_amount` pa
+JOIN {schema}.policy_amount pa
   ON pa.policy_coverage_detail_identifier = pcd.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.premium`
+JOIN {schema}.premium
   ON premium.policy_amount_identifier = pa.policy_amount_identifier
-JOIN `{project}.{dataset}.agreement_party_role` apr
+JOIN {schema}.agreement_party_role apr
   ON apr.agreement_identifier = policy.policy_identifier
 WHERE apr.party_role_code = 'AG'
 GROUP BY policy.policy_number, apr.party_identifier""" .
@@ -380,12 +379,12 @@ GROUP BY policy.policy_number, apr.party_identifier""" .
 
     rr:logicalTable [ rr:sqlQuery """
         SELECT claim_identifier, policy_coverage_detail_identifier
-        FROM `{project}.{dataset}.claim_coverage`
+        FROM {schema}.claim_coverage
     """ ] ;
 
     # Subject: blank node — this is a pure association, no independent IRI
     rr:subjectMap [
-        rr:template "{project}/{dataset}/ClaimCoverage-{claim_identifier}-{policy_coverage_detail_identifier}"
+        rr:template "{schema}/ClaimCoverage-{claim_identifier}-{policy_coverage_detail_identifier}"
     ] ;
 
     # in:against: Claim → PolicyCoverageDetail
@@ -400,7 +399,7 @@ GROUP BY policy.policy_number, apr.party_identifier""" .
         ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "claim_identifier" .
 
 # ------------------------------------------------------------
@@ -417,14 +416,14 @@ GROUP BY policy.policy_number, apr.party_identifier""" .
 
     rr:logicalTable [ rr:sqlQuery """
         SELECT claim_amount_identifier, claim_identifier, claim_amount_type_code, event_date
-        FROM `{project}.{dataset}.claim_amount`
+        FROM {schema}.claim_amount
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/ClaimAmount-{claim_amount_identifier}"
+        rr:template "{schema}/ClaimAmount-{claim_amount_identifier}"
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "claim_amount_identifier" .
 
 # ------------------------------------------------------------
@@ -442,13 +441,13 @@ GROUP BY policy.policy_number, apr.party_identifier""" .
         SELECT lp.claim_amount_identifier,
                ca.claim_identifier,
                ca.claim_amount AS loss_payment_amount
-        FROM `{project}.{dataset}.loss_payment` lp
-        JOIN `{project}.{dataset}.claim_amount` ca
+        FROM {schema}.loss_payment lp
+        JOIN {schema}.claim_amount ca
           ON ca.claim_amount_identifier = lp.claim_amount_identifier
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/LossPayment-{claim_amount_identifier}" ;
+        rr:template "{schema}/LossPayment-{claim_amount_identifier}" ;
         rr:class in:LossPayment
     ] ;
 
@@ -469,7 +468,7 @@ GROUP BY policy.policy_number, apr.party_identifier""" .
         ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "claim_amount_identifier" ;
     ex:queryExample
         ex:LossPayment_q01,
@@ -480,10 +479,10 @@ ex:LossPayment_q01
     rdfs:label "What are the loss payment amounts of all claims by claim number?" ;
     ex:sql """SELECT claim.company_claim_number,
        ca.claim_amount AS lossPaymentAmount
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.claim_amount` ca
+FROM {schema}.claim claim
+JOIN {schema}.claim_amount ca
   ON ca.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_payment` lp
+JOIN {schema}.loss_payment lp
   ON lp.claim_amount_identifier = ca.claim_amount_identifier""" .
 
 ex:LossPayment_q02
@@ -491,22 +490,22 @@ ex:LossPayment_q02
     rdfs:label "What is the total loss of each claim by claim number? (loss payment + loss reserve + expense payment + expense reserve)" ;
     ex:sql """SELECT claim.company_claim_number,
        ca_lp.claim_amount + ca_lr.claim_amount + ca_ep.claim_amount + ca_er.claim_amount AS totalLoss
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.claim_amount` ca_lp
+FROM {schema}.claim claim
+JOIN {schema}.claim_amount ca_lp
   ON ca_lp.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_payment`
+JOIN {schema}.loss_payment
   ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_lr
+JOIN {schema}.claim_amount ca_lr
   ON ca_lr.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_reserve`
+JOIN {schema}.loss_reserve
   ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_ep
+JOIN {schema}.claim_amount ca_ep
   ON ca_ep.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_payment`
+JOIN {schema}.expense_payment
   ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_er
+JOIN {schema}.claim_amount ca_er
   ON ca_er.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_reserve`
+JOIN {schema}.expense_reserve
   ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier""" .
 
 # ------------------------------------------------------------
@@ -523,13 +522,13 @@ JOIN `{project}.{dataset}.expense_reserve`
         SELECT lr.claim_amount_identifier,
                ca.claim_identifier,
                ca.claim_amount AS loss_reserve_amount
-        FROM `{project}.{dataset}.loss_reserve` lr
-        JOIN `{project}.{dataset}.claim_amount` ca
+        FROM {schema}.loss_reserve lr
+        JOIN {schema}.claim_amount ca
           ON ca.claim_amount_identifier = lr.claim_amount_identifier
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/LossReserve-{claim_amount_identifier}" ;
+        rr:template "{schema}/LossReserve-{claim_amount_identifier}" ;
         rr:class in:LossReserve
     ] ;
 
@@ -538,7 +537,7 @@ JOIN `{project}.{dataset}.expense_reserve`
         rr:objectMap [ rr:column "loss_reserve_amount" ; rr:datatype xsd:decimal ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "claim_amount_identifier" ;
     ex:queryExample ex:LossReserve_q01 .
 
@@ -547,10 +546,10 @@ ex:LossReserve_q01
     rdfs:label "What are the loss reserve amounts of all claims by claim number?" ;
     ex:sql """SELECT claim.company_claim_number,
        ca.claim_amount AS lossReserveAmount
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.claim_amount` ca
+FROM {schema}.claim claim
+JOIN {schema}.claim_amount ca
   ON ca.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_reserve` lr
+JOIN {schema}.loss_reserve lr
   ON lr.claim_amount_identifier = ca.claim_amount_identifier""" .
 
 # ------------------------------------------------------------
@@ -567,13 +566,13 @@ JOIN `{project}.{dataset}.loss_reserve` lr
         SELECT ep.claim_amount_identifier,
                ca.claim_identifier,
                ca.claim_amount AS expense_payment_amount
-        FROM `{project}.{dataset}.expense_payment` ep
-        JOIN `{project}.{dataset}.claim_amount` ca
+        FROM {schema}.expense_payment ep
+        JOIN {schema}.claim_amount ca
           ON ca.claim_amount_identifier = ep.claim_amount_identifier
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/ExpensePayment-{claim_amount_identifier}" ;
+        rr:template "{schema}/ExpensePayment-{claim_amount_identifier}" ;
         rr:class in:ExpensePayment
     ] ;
 
@@ -582,7 +581,7 @@ JOIN `{project}.{dataset}.loss_reserve` lr
         rr:objectMap [ rr:column "expense_payment_amount" ; rr:datatype xsd:decimal ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "claim_amount_identifier" ;
     ex:queryExample ex:ExpensePayment_q01 .
 
@@ -591,10 +590,10 @@ ex:ExpensePayment_q01
     rdfs:label "What are the expense payment amounts of all claims by claim number?" ;
     ex:sql """SELECT claim.company_claim_number,
        ca.claim_amount AS expensePaymentAmount
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.claim_amount` ca
+FROM {schema}.claim claim
+JOIN {schema}.claim_amount ca
   ON ca.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_payment` ep
+JOIN {schema}.expense_payment ep
   ON ep.claim_amount_identifier = ca.claim_amount_identifier""" .
 
 # ------------------------------------------------------------
@@ -611,13 +610,13 @@ JOIN `{project}.{dataset}.expense_payment` ep
         SELECT er.claim_amount_identifier,
                ca.claim_identifier,
                ca.claim_amount AS expense_reserve_amount
-        FROM `{project}.{dataset}.expense_reserve` er
-        JOIN `{project}.{dataset}.claim_amount` ca
+        FROM {schema}.expense_reserve er
+        JOIN {schema}.claim_amount ca
           ON ca.claim_amount_identifier = er.claim_amount_identifier
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/ExpenseReserve-{claim_amount_identifier}" ;
+        rr:template "{schema}/ExpenseReserve-{claim_amount_identifier}" ;
         rr:class in:ExpenseReserve
     ] ;
 
@@ -626,7 +625,7 @@ JOIN `{project}.{dataset}.expense_payment` ep
         rr:objectMap [ rr:column "expense_reserve_amount" ; rr:datatype xsd:decimal ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "claim_amount_identifier" ;
     ex:queryExample ex:ExpenseReserve_q01 .
 
@@ -635,10 +634,10 @@ ex:ExpenseReserve_q01
     rdfs:label "What are the expense reserve amounts of all claims by claim number?" ;
     ex:sql """SELECT claim.company_claim_number,
        ca.claim_amount AS expenseReserveAmount
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.claim_amount` ca
+FROM {schema}.claim claim
+JOIN {schema}.claim_amount ca
   ON ca.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_reserve` er
+JOIN {schema}.expense_reserve er
   ON er.claim_amount_identifier = ca.claim_amount_identifier""" .
 
 # ------------------------------------------------------------
@@ -659,13 +658,13 @@ JOIN `{project}.{dataset}.expense_reserve` er
                pa.policy_amount AS premium_amount,
                pa.earning_period_start,
                pa.earning_period_end
-        FROM `{project}.{dataset}.premium` pr
-        JOIN `{project}.{dataset}.policy_amount` pa
+        FROM {schema}.premium pr
+        JOIN {schema}.policy_amount pa
           ON pa.policy_amount_identifier = pr.policy_amount_identifier
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/Premium-{policy_amount_identifier}" ;
+        rr:template "{schema}/Premium-{policy_amount_identifier}" ;
         rr:class in:Premium
     ] ;
 
@@ -678,7 +677,7 @@ JOIN `{project}.{dataset}.expense_reserve` er
         rr:objectMap [ rr:column "earning_period_start" ; rr:datatype xsd:dateTime ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "policy_coverage_detail_identifier" ;
     ex:queryExample
         ex:Premium_q01,
@@ -690,12 +689,12 @@ ex:Premium_q01
     ex:sql """SELECT AVG(policyPremium) AS avgPolicySize
 FROM (
   SELECT policy.policy_identifier, SUM(pa.policy_amount) AS policyPremium
-  FROM `{project}.{dataset}.policy` policy
-  JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+  FROM {schema}.policy policy
+  JOIN {schema}.policy_coverage_detail pcd
     ON pcd.policy_identifier = policy.policy_identifier
-  JOIN `{project}.{dataset}.policy_amount` pa
+  JOIN {schema}.policy_amount pa
     ON pa.policy_coverage_detail_identifier = pcd.policy_coverage_detail_identifier
-  JOIN `{project}.{dataset}.premium`
+  JOIN {schema}.premium
     ON premium.policy_amount_identifier = pa.policy_amount_identifier
   GROUP BY policy.policy_identifier
 ) sub""" .
@@ -705,21 +704,21 @@ ex:Premium_q02
     rdfs:label "What is the average loss of each policy by policy number?" ;
     ex:sql """SELECT policy.policy_number,
        AVG(ca_lp.claim_amount + ca_lr.claim_amount + ca_ep.claim_amount + ca_er.claim_amount) AS avgLoss
-FROM `{project}.{dataset}.policy` policy
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+FROM {schema}.policy policy
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_identifier = policy.policy_identifier
-JOIN `{project}.{dataset}.claim_coverage` cc
+JOIN {schema}.claim_coverage cc
   ON cc.policy_coverage_detail_identifier = pcd.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.claim` claim
+JOIN {schema}.claim claim
   ON claim.claim_identifier = cc.claim_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_lp ON ca_lp.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_payment` ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_lr ON ca_lr.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_reserve` ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_ep ON ca_ep.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_payment` ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_er ON ca_er.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_reserve` ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier
+JOIN {schema}.claim_amount ca_lp ON ca_lp.claim_identifier = claim.claim_identifier
+JOIN {schema}.loss_payment ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
+JOIN {schema}.claim_amount ca_lr ON ca_lr.claim_identifier = claim.claim_identifier
+JOIN {schema}.loss_reserve ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
+JOIN {schema}.claim_amount ca_ep ON ca_ep.claim_identifier = claim.claim_identifier
+JOIN {schema}.expense_payment ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
+JOIN {schema}.claim_amount ca_er ON ca_er.claim_identifier = claim.claim_identifier
+JOIN {schema}.expense_reserve ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier
 GROUP BY policy.policy_number""" .
 
 # ------------------------------------------------------------
@@ -736,12 +735,12 @@ GROUP BY policy.policy_number""" .
     rr:logicalTable [ rr:sqlQuery """
         SELECT party_identifier AS agent_id,
                agreement_identifier AS policy_identifier
-        FROM `{project}.{dataset}.agreement_party_role`
+        FROM {schema}.agreement_party_role
         WHERE party_role_code = 'AG'
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/Agent-{agent_id}" ;
+        rr:template "{schema}/Agent-{agent_id}" ;
         rr:class in:Agent
     ] ;
 
@@ -762,7 +761,7 @@ GROUP BY policy.policy_number""" .
         ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "agent_id" ;
     ex:queryExample
         ex:Agent_q01,
@@ -773,23 +772,23 @@ ex:Agent_q01
     rdfs:label "What is the total loss of each policy that an agent has sold by agent id?" ;
     ex:sql """SELECT apr.party_identifier AS agentId,
        SUM(ca_lp.claim_amount + ca_lr.claim_amount + ca_ep.claim_amount + ca_er.claim_amount) AS totalLoss
-FROM `{project}.{dataset}.agreement_party_role` apr
-JOIN `{project}.{dataset}.policy` policy
+FROM {schema}.agreement_party_role apr
+JOIN {schema}.policy policy
   ON policy.policy_identifier = apr.agreement_identifier
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_identifier = policy.policy_identifier
-JOIN `{project}.{dataset}.claim_coverage` cc
+JOIN {schema}.claim_coverage cc
   ON cc.policy_coverage_detail_identifier = pcd.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.claim` claim
+JOIN {schema}.claim claim
   ON claim.claim_identifier = cc.claim_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_lp ON ca_lp.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_payment` ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_lr ON ca_lr.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_reserve` ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_ep ON ca_ep.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_payment` ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_er ON ca_er.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_reserve` ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier
+JOIN {schema}.claim_amount ca_lp ON ca_lp.claim_identifier = claim.claim_identifier
+JOIN {schema}.loss_payment ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
+JOIN {schema}.claim_amount ca_lr ON ca_lr.claim_identifier = claim.claim_identifier
+JOIN {schema}.loss_reserve ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
+JOIN {schema}.claim_amount ca_ep ON ca_ep.claim_identifier = claim.claim_identifier
+JOIN {schema}.expense_payment ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
+JOIN {schema}.claim_amount ca_er ON ca_er.claim_identifier = claim.claim_identifier
+JOIN {schema}.expense_reserve ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier
 WHERE apr.party_role_code = 'AG'
 GROUP BY apr.party_identifier""" .
 
@@ -806,31 +805,31 @@ ex:Agent_q02
        ca_lr.claim_amount AS lossReserve,
        ca_ep.claim_amount AS expensePayment,
        ca_er.claim_amount AS expenseReserve
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.catastrophe` cat
+FROM {schema}.claim claim
+JOIN {schema}.catastrophe cat
   ON cat.catastrophe_identifier = claim.catastrophe_identifier
-JOIN `{project}.{dataset}.claim_coverage` cc
+JOIN {schema}.claim_coverage cc
   ON cc.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_coverage_detail_identifier = cc.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.policy` policy
+JOIN {schema}.policy policy
   ON policy.policy_identifier = pcd.policy_identifier
-JOIN `{project}.{dataset}.policy_amount` pa
+JOIN {schema}.policy_amount pa
   ON pa.policy_coverage_detail_identifier = pcd.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.premium`
+JOIN {schema}.premium
   ON premium.policy_amount_identifier = pa.policy_amount_identifier
-JOIN `{project}.{dataset}.agreement_party_role` ag_apr
+JOIN {schema}.agreement_party_role ag_apr
   ON ag_apr.agreement_identifier = policy.policy_identifier AND ag_apr.party_role_code = 'AG'
-JOIN `{project}.{dataset}.agreement_party_role` ph_apr
+JOIN {schema}.agreement_party_role ph_apr
   ON ph_apr.agreement_identifier = policy.policy_identifier AND ph_apr.party_role_code = 'PH'
-JOIN `{project}.{dataset}.claim_amount` ca_lp ON ca_lp.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_payment` ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_lr ON ca_lr.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_reserve` ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_ep ON ca_ep.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_payment` ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_er ON ca_er.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_reserve` ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier""" .
+JOIN {schema}.claim_amount ca_lp ON ca_lp.claim_identifier = claim.claim_identifier
+JOIN {schema}.loss_payment ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
+JOIN {schema}.claim_amount ca_lr ON ca_lr.claim_identifier = claim.claim_identifier
+JOIN {schema}.loss_reserve ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
+JOIN {schema}.claim_amount ca_ep ON ca_ep.claim_identifier = claim.claim_identifier
+JOIN {schema}.expense_payment ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
+JOIN {schema}.claim_amount ca_er ON ca_er.claim_identifier = claim.claim_identifier
+JOIN {schema}.expense_reserve ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier""" .
 
 # ------------------------------------------------------------
 # 13. agreement_party_role WHERE party_role_code='PH' → in:PolicyHolder
@@ -846,12 +845,12 @@ JOIN `{project}.{dataset}.expense_reserve` ON expense_reserve.claim_amount_ident
     rr:logicalTable [ rr:sqlQuery """
         SELECT party_identifier AS policy_holder_id,
                agreement_identifier AS policy_identifier
-        FROM `{project}.{dataset}.agreement_party_role`
+        FROM {schema}.agreement_party_role
         WHERE party_role_code = 'PH'
     """ ] ;
 
     rr:subjectMap [
-        rr:template "{project}/{dataset}/PolicyHolder-{policy_holder_id}" ;
+        rr:template "{schema}/PolicyHolder-{policy_holder_id}" ;
         rr:class in:PolicyHolder
     ] ;
 
@@ -872,7 +871,7 @@ JOIN `{project}.{dataset}.expense_reserve` ON expense_reserve.claim_amount_ident
         ]
     ] ;
 
-    ex:dataSource "{project}.{dataset}" ;
+    ex:dataSource "{schema}" ;
     ex:joinKey    "policy_holder_id" ;
     ex:queryExample ex:PolicyHolder_q01 .
 
@@ -885,20 +884,20 @@ ex:PolicyHolder_q01
        ca_lr.claim_amount AS lossReserve,
        ca_ep.claim_amount AS expensePayment,
        ca_er.claim_amount AS expenseReserve
-FROM `{project}.{dataset}.claim` claim
-JOIN `{project}.{dataset}.claim_coverage` cc
+FROM {schema}.claim claim
+JOIN {schema}.claim_coverage cc
   ON cc.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.policy_coverage_detail` pcd
+JOIN {schema}.policy_coverage_detail pcd
   ON pcd.policy_coverage_detail_identifier = cc.policy_coverage_detail_identifier
-JOIN `{project}.{dataset}.policy` policy
+JOIN {schema}.policy policy
   ON policy.policy_identifier = pcd.policy_identifier
-JOIN `{project}.{dataset}.agreement_party_role` ph_apr
+JOIN {schema}.agreement_party_role ph_apr
   ON ph_apr.agreement_identifier = policy.policy_identifier AND ph_apr.party_role_code = 'PH'
-JOIN `{project}.{dataset}.claim_amount` ca_lp ON ca_lp.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_payment` ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_lr ON ca_lr.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.loss_reserve` ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_ep ON ca_ep.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_payment` ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
-JOIN `{project}.{dataset}.claim_amount` ca_er ON ca_er.claim_identifier = claim.claim_identifier
-JOIN `{project}.{dataset}.expense_reserve` ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier""" .
+JOIN {schema}.claim_amount ca_lp ON ca_lp.claim_identifier = claim.claim_identifier
+JOIN {schema}.loss_payment ON loss_payment.claim_amount_identifier = ca_lp.claim_amount_identifier
+JOIN {schema}.claim_amount ca_lr ON ca_lr.claim_identifier = claim.claim_identifier
+JOIN {schema}.loss_reserve ON loss_reserve.claim_amount_identifier = ca_lr.claim_amount_identifier
+JOIN {schema}.claim_amount ca_ep ON ca_ep.claim_identifier = claim.claim_identifier
+JOIN {schema}.expense_payment ON expense_payment.claim_amount_identifier = ca_ep.claim_amount_identifier
+JOIN {schema}.claim_amount ca_er ON ca_er.claim_identifier = claim.claim_identifier
+JOIN {schema}.expense_reserve ON expense_reserve.claim_amount_identifier = ca_er.claim_amount_identifier""" .
