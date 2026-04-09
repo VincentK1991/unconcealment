@@ -67,7 +67,14 @@ public class DatasetManifest {
         private String ontologyPath;
         private RulesPaths rules;
         private String fusekiDataset;
+        /**
+         * Path to an R2RML Turtle bindings file (new format, per docs/decisions/semantic-binding.md).
+         * When set, the backend loads this file into urn:{datasetId}:bindings at startup.
+         * Takes precedence over bigquery.bindingsPath (legacy YAML format).
+         */
+        private String bindingsPath;
         private BigQueryConfig bigquery;
+        private PostgresConfig postgres;
 
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
@@ -90,8 +97,14 @@ public class DatasetManifest {
         public String getFusekiDataset() { return fusekiDataset; }
         public void setFusekiDataset(String fusekiDataset) { this.fusekiDataset = fusekiDataset; }
 
+        public String getBindingsPath() { return bindingsPath; }
+        public void setBindingsPath(String bindingsPath) { this.bindingsPath = bindingsPath; }
+
         public BigQueryConfig getBigquery() { return bigquery; }
         public void setBigquery(BigQueryConfig bigquery) { this.bigquery = bigquery; }
+
+        public PostgresConfig getPostgres() { return postgres; }
+        public void setPostgres(PostgresConfig postgres) { this.postgres = postgres; }
 
         /** Returns named graph URIs derived from the dataset id. */
         public NamedGraphs namedGraphs() {
@@ -111,12 +124,40 @@ public class DatasetManifest {
 
     public static class BigQueryConfig {
         private boolean enabled;
+        /** Legacy YAML bindings path. Used by economic-census and public-health datasets. */
         private String bindingsPath;
+        /** GCP project ID. Replaces any hardcoded project references in SQL templates. */
+        private String project;
+        /** BigQuery dataset name within the GCP project. */
+        private String dataset;
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
         public String getBindingsPath() { return bindingsPath; }
         public void setBindingsPath(String bindingsPath) { this.bindingsPath = bindingsPath; }
+        public String getProject() { return project; }
+        public void setProject(String project) { this.project = project; }
+        public String getDataset() { return dataset; }
+        public void setDataset(String dataset) { this.dataset = dataset; }
+    }
+
+    /**
+     * PostgreSQL structured data config.
+     * Used by datasets whose relational data lives in the kg Postgres database
+     * (e.g. insurance with the acme_insurance schema).
+     */
+    public static class PostgresConfig {
+        private boolean enabled;
+        /**
+         * PostgreSQL schema name within the kg database.
+         * Used to resolve {schema} template variables in R2RML SQL bindings.
+         */
+        private String schema;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public String getSchema() { return schema; }
+        public void setSchema(String schema) { this.schema = schema; }
     }
 
     /**
@@ -128,6 +169,8 @@ public class DatasetManifest {
         public String tbox()          { return "urn:" + datasetId + ":tbox:ontology"; }
         public String rulesForward()  { return "urn:" + datasetId + ":tbox:rules:forward"; }
         public String rulesBackward() { return "urn:" + datasetId + ":tbox:rules:backward"; }
+        /** R2RML/RML semantic bindings (new format). Loaded from DatasetConfig.bindingsPath if set. */
+        public String bindings()      { return "urn:" + datasetId + ":bindings"; }
         public String aboxAsserted()  { return "urn:" + datasetId + ":abox:asserted"; }
         public String aboxInferred()  { return "urn:" + datasetId + ":abox:inferred"; }
         public String normalization() { return "urn:" + datasetId + ":normalization"; }

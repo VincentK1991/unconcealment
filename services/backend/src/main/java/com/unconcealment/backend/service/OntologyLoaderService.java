@@ -76,6 +76,13 @@ public class OntologyLoaderService {
             }
         }
 
+        // Load R2RML Turtle bindings into urn:{datasetId}:bindings (new format).
+        // Datasets using the legacy YAML format (bigquery.bindingsPath) are handled by the
+        // TypeScript indexing pipeline; they do not produce a bindings named graph.
+        if (dataset.getBindingsPath() != null) {
+            loadTtl(conn, dataset.getBindingsPath(), graphs.bindings(), "bindings", datasetId);
+        }
+
         recordLoadEvent(conn, graphs.systemHealth(), datasetId);
     }
 
