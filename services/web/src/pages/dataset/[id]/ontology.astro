@@ -1,7 +1,11 @@
 ---
 export const prerender = false;
 
+import BaseLayout from "../../../layouts/BaseLayout.astro";
 import DatasetNav from "../../../components/DatasetNav.astro";
+import DataTable from "../../../components/DataTable.astro";
+import Chip from "../../../components/Chip.astro";
+import EmptyState from "../../../components/EmptyState.astro";
 
 const { id: datasetId } = Astro.params;
 if (!datasetId) return Astro.redirect("/");
@@ -72,86 +76,65 @@ const [classes, props] = await Promise.all([
 const short = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Ontology — {datasetId} — unconcealment</title>
-    <style>
-      body  { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-      h1    { font-size: 1.5rem; margin: 0 0 0.25rem; }
-      h2    { font-size: 1.1rem; margin: 2rem 0 0.75rem; border-bottom: 2px solid #e0e0e0; padding-bottom: 0.4rem; }
-      .sub  { color: #555; font-size: 0.85rem; font-family: monospace; margin: 0 0 1.5rem; }
-      .badge{ display: inline-block; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; margin-left: 0.4rem; }
-      .empty{ color: #888; font-size: 0.9rem; }
-      table { width: 100%; border-collapse: collapse; margin-top: 0.25rem; font-size: 0.875rem; }
-      th    { text-align: left; border-bottom: 2px solid #ccc; padding: 0.4rem 0.6rem; font-size: 0.78rem; color: #444; text-transform: uppercase; letter-spacing: 0.04em; }
-      td    { padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; vertical-align: top; }
-      td.iri{ font-family: monospace; font-size: 0.72rem; color: #888; word-break: break-all; }
-      td.comment { color: #555; font-size: 0.82rem; }
-      .tag  { display: inline-block; background: #eef4ff; color: #1a6bb5; border-radius: 4px; padding: 0.05rem 0.45rem; font-size: 0.75rem; margin-right: 0.2rem; }
-      .tag.dp{ background: #fff4e6; color: #a05a00; }
-      .parent{ font-size: 0.75rem; color: #888; }
-    </style>
-  </head>
-  <body>
-    <DatasetNav datasetId={datasetId} current="ontology" />
-    <h1>Ontology</h1>
-    <p class="sub">urn:{datasetId}:tbox:ontology</p>
+<BaseLayout title={`Ontology — ${datasetId} — unconcealment`}>
+  <DatasetNav datasetId={datasetId} current="ontology" />
 
-    <!-- Classes -->
-    <h2>Classes <span class="badge">{classes.length}</span></h2>
-    {classes.length === 0
-      ? <p class="empty">No classes found.</p>
-      : (
-        <table>
-          <thead>
-            <tr><th>Class</th><th>IRI</th><th>Parent</th><th>Description</th></tr>
-          </thead>
-          <tbody>
-            {classes.map(row => (
-              <tr>
-                <td><strong>{row.label.value}</strong></td>
-                <td class="iri">{row.class.value}</td>
-                <td class="parent">{row.parent ? short(row.parent.value) : "—"}</td>
-                <td class="comment">{row.comment?.value ?? ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )
-    }
+  <div style="margin-bottom: 1.5rem;">
+    <h1 style="font-family: 'Manrope', sans-serif; font-size: 1.75rem; font-weight: 800; color: #191c1e; letter-spacing: -0.025em; margin-bottom: 0.25rem;">
+      Ontology
+    </h1>
+    <code style="font-size: 0.7rem; color: #c4c5d9;">urn:{datasetId}:tbox:ontology</code>
+  </div>
 
-    <!-- Properties -->
-    <h2>Properties <span class="badge">{props.length}</span></h2>
-    {props.length === 0
-      ? <p class="empty">No properties found.</p>
-      : (
-        <table>
-          <thead>
-            <tr><th>Property</th><th>Type</th><th>Domain</th><th>Range</th><th>Description</th></tr>
-          </thead>
-          <tbody>
-            {props.map(row => (
-              <tr>
-                <td>
-                  <strong>{row.label.value}</strong>
-                  <br /><span style="font-family:monospace;font-size:0.7rem;color:#aaa">{short(row.prop.value)}</span>
-                </td>
-                <td>
-                  <span class={`tag ${row.propType.value === "DatatypeProperty" ? "dp" : ""}`}>
-                    {row.propType.value === "ObjectProperty" ? "Object" : "Datatype"}
-                  </span>
-                </td>
-                <td class="iri">{row.domain ? short(row.domain.value) : "—"}</td>
-                <td class="iri">{row.range  ? short(row.range.value)  : "—"}</td>
-                <td class="comment">{row.comment?.value ?? ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )
-    }
-  </body>
-</html>
+  <!-- Classes -->
+  <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.75rem; margin-top: 1.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(196,197,217,0.3);">
+    <h2 style="font-family: 'Manrope', sans-serif; font-size: 1.125rem; font-weight: 700; color: #191c1e;">Classes</h2>
+    <span class="badge-count">{classes.length}</span>
+  </div>
+  {classes.length === 0
+    ? <EmptyState message="No classes found." />
+    : (
+      <DataTable columns={["Class", "IRI", "Parent", "Description"]}>
+        {classes.map(row => (
+          <tr>
+            <td style="font-weight: 600;">{row.label.value}</td>
+            <td style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.7rem; color: #c4c5d9; word-break: break-all;">{row.class.value}</td>
+            <td style="font-size: 0.8125rem; color: #747688;">{row.parent ? short(row.parent.value) : "—"}</td>
+            <td style="font-size: 0.8125rem; color: #434656;">{row.comment?.value ?? ""}</td>
+          </tr>
+        ))}
+      </DataTable>
+    )
+  }
+
+  <!-- Properties -->
+  <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.75rem; margin-top: 2rem; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(196,197,217,0.3);">
+    <h2 style="font-family: 'Manrope', sans-serif; font-size: 1.125rem; font-weight: 700; color: #191c1e;">Properties</h2>
+    <span class="badge-count">{props.length}</span>
+  </div>
+  {props.length === 0
+    ? <EmptyState message="No properties found." />
+    : (
+      <DataTable columns={["Property", "Type", "Domain", "Range", "Description"]}>
+        {props.map(row => (
+          <tr>
+            <td>
+              <span style="font-weight: 600;">{row.label.value}</span>
+              <br />
+              <code style="font-size: 0.68rem; color: #c4c5d9;">{short(row.prop.value)}</code>
+            </td>
+            <td>
+              <Chip
+                label={row.propType.value === "ObjectProperty" ? "Object" : "Datatype"}
+                variant={row.propType.value === "DatatypeProperty" ? "amber" : "blue"}
+              />
+            </td>
+            <td style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.75rem; color: #747688;">{row.domain ? short(row.domain.value) : "—"}</td>
+            <td style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.75rem; color: #747688;">{row.range  ? short(row.range.value)  : "—"}</td>
+            <td style="font-size: 0.8125rem; color: #434656;">{row.comment?.value ?? ""}</td>
+          </tr>
+        ))}
+      </DataTable>
+    )
+  }
+</BaseLayout>

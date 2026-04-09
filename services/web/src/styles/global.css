@@ -1,0 +1,275 @@
+@import "tailwindcss";
+
+@theme {
+  /* ── Lucid Archive: Primary (Electric Blue) ─────────────── */
+  --color-primary:                  #0040e0;
+  --color-primary-container:        #2e5bff;
+  --color-on-primary:               #ffffff;
+  --color-on-primary-container:     #efefff;
+  --color-primary-fixed:            #dde1ff;
+  --color-primary-fixed-dim:        #b8c3ff;
+  --color-on-primary-fixed:         #001356;
+  --color-on-primary-fixed-variant: #0035be;
+
+  /* ── Lucid Archive: Secondary (Soft Teal) ───────────────── */
+  --color-secondary:                  #006874;
+  --color-secondary-container:        #5ce9fe;
+  --color-on-secondary:               #ffffff;
+  --color-on-secondary-container:     #006773;
+  --color-secondary-fixed:            #98f0ff;
+  --color-secondary-fixed-dim:        #45d8ed;
+  --color-on-secondary-fixed:         #001f24;
+  --color-on-secondary-fixed-variant: #004f58;
+
+  /* ── Lucid Archive: Tertiary (Coral) ────────────────────── */
+  --color-tertiary:                   #9e2b00;
+  --color-tertiary-container:         #c04319;
+  --color-on-tertiary:                #ffffff;
+  --color-on-tertiary-container:      #ffece7;
+  --color-tertiary-fixed:             #ffdbd0;
+  --color-tertiary-fixed-dim:         #ffb59f;
+  --color-on-tertiary-fixed:          #3a0a00;
+  --color-on-tertiary-fixed-variant:  #852300;
+
+  /* ── Lucid Archive: Surfaces ────────────────────────────── */
+  --color-surface:                   #f7f9fb;
+  --color-surface-bright:            #f7f9fb;
+  --color-surface-dim:               #d8dadc;
+  --color-surface-container-lowest:  #ffffff;
+  --color-surface-container-low:     #f2f4f6;
+  --color-surface-container:         #eceef0;
+  --color-surface-container-high:    #e6e8ea;
+  --color-surface-container-highest: #e0e3e5;
+  --color-surface-variant:           #e0e3e5;
+  --color-surface-tint:              #124af0;
+
+  /* ── Lucid Archive: Neutrals ────────────────────────────── */
+  --color-background:        #f7f9fb;
+  --color-on-background:     #191c1e;
+  --color-on-surface:        #191c1e;
+  --color-on-surface-variant:#434656;
+  --color-outline:           #747688;
+  --color-outline-variant:   #c4c5d9;
+
+  /* ── Lucid Archive: Error ───────────────────────────────── */
+  --color-error:           #ba1a1a;
+  --color-error-container: #ffdad6;
+  --color-on-error:        #ffffff;
+  --color-on-error-container: #93000a;
+
+  /* ── Lucid Archive: Inverse ─────────────────────────────── */
+  --color-inverse-surface:    #2d3133;
+  --color-inverse-primary:    #b8c3ff;
+  --color-inverse-on-surface: #eff1f3;
+
+  /* ── Typography ─────────────────────────────────────────── */
+  --font-headline: 'Manrope', sans-serif;
+  --font-body:     'Inter', sans-serif;
+  --font-label:    'Inter', sans-serif;
+
+  /* ── Border Radius ──────────────────────────────────────── */
+  --radius-sm:   0.25rem;
+  --radius-md:   0.5rem;
+  --radius-lg:   0.75rem;
+  --radius-xl:   1rem;
+  --radius-2xl:  1.5rem;
+  --radius-full: 9999px;
+}
+
+/* ── Base ──────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #f7f9fb;
+  color: #191c1e;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Glass utilities ───────────────────────────────────────── */
+.glass {
+  background: rgba(247, 249, 251, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0px 4px 20px rgba(25, 28, 30, 0.04),
+    0px 12px 40px rgba(18, 74, 240, 0.06);
+}
+
+/* ── Lucid shadow ──────────────────────────────────────────── */
+.shadow-lucid {
+  box-shadow:
+    0px 4px 20px rgba(25, 28, 30, 0.04),
+    0px 12px 40px rgba(18, 74, 240, 0.06);
+}
+
+/* ── Links ─────────────────────────────────────────────────── */
+a.link-primary, .link-primary {
+  color: #0040e0;
+  text-decoration: none;
+  font-weight: 500;
+}
+a.link-primary:hover, .link-primary:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+a.link-subtle {
+  color: #747688;
+  text-decoration: none;
+}
+a.link-subtle:hover {
+  color: #191c1e;
+}
+
+/* ── Badges / count pills ──────────────────────────────────── */
+.badge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.15rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-family: 'Inter', sans-serif;
+  background: #eceef0;
+  color: #434656;
+  letter-spacing: 0.02em;
+}
+
+/* ── Btn primitives ─────────────────────────────────────────── */
+.btn-primary-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1.25rem;
+  border-radius: 9999px;
+  background: #0040e0;
+  color: #ffffff;
+  font-family: 'Manrope', sans-serif;
+  font-weight: 700;
+  font-size: 0.875rem;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s, transform 0.15s;
+  box-shadow: 0 4px 14px rgba(0, 64, 224, 0.2);
+}
+.btn-primary-pill:hover { opacity: 0.9; transform: scale(0.98); }
+
+.btn-ghost-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 0.75rem;
+  background: #f2f4f6;
+  color: #434656;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s;
+  text-decoration: none;
+}
+.btn-ghost-sm:hover { background: #e6e8ea; }
+.btn-ghost-sm.active, .btn-ghost-sm[aria-current="page"] {
+  background: #dde1ff;
+  color: #0040e0;
+}
+.btn-ghost-sm.disabled, .btn-ghost-sm[disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ── Input ──────────────────────────────────────────────────── */
+.input-lucid {
+  width: 100%;
+  padding: 0.5rem 0.875rem;
+  border-radius: 0.75rem;
+  border: none;
+  background: #f2f4f6;
+  color: #191c1e;
+  font-size: 0.875rem;
+  font-family: 'Inter', sans-serif;
+  outline: none;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.input-lucid:focus {
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(18, 74, 240, 0.12);
+}
+.input-lucid::placeholder { color: #747688; }
+
+/* ── Section header (h2-level) ──────────────────────────────── */
+.section-heading {
+  font-family: 'Manrope', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #191c1e;
+  padding-bottom: 0.5rem;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(196, 197, 217, 0.4);
+}
+
+/* ── Warning banner ─────────────────────────────────────────── */
+.alert-warning-lucid {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: #ffdbd0;
+  color: #3a0a00;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+/* ── Code / monospace ───────────────────────────────────────── */
+code, pre {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.82em;
+}
+
+/* ── IRI word-break ─────────────────────────────────────────── */
+.word-break-all { word-break: break-all; }
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Tab bar (entity page) ──────────────────────────────────── */
+.tab-btn {
+  border-bottom: 3px solid transparent;
+  margin-bottom: -2px;
+  color: #747688;
+  padding: 0.5rem 1.125rem;
+  font-family: 'Manrope', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+  transition: color 0.2s, background 0.2s;
+  white-space: nowrap;
+}
+.tab-btn.active {
+  border-bottom-color: #0040e0;
+  color: #0040e0;
+}
+.tab-btn:hover:not(.active) {
+  background: #f2f4f6;
+  color: #191c1e;
+}
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }

@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import BaseLayout from "../../../layouts/BaseLayout.astro";
 import DatasetNav from "../../../components/DatasetNav.astro";
 
 const { id: datasetId } = Astro.params;
@@ -8,20 +9,18 @@ if (!datasetId) return Astro.redirect("/");
 
 const BACKEND_URL = import.meta.env.BACKEND_URL ?? "http://localhost:8080";
 
-// Named graphs for this dataset
 const graphs = [
-  { role: "Ontology",        uri: `urn:${datasetId}:tbox:ontology`,        href: `/dataset/${datasetId}/ontology`,       description: "OWL classes and properties" },
-  { role: "Forward Rules",   uri: `urn:${datasetId}:tbox:rules:forward`,   href: `/dataset/${datasetId}/rules#forward`,   description: "Materialized RETE rules" },
-  { role: "Backward Rules",  uri: `urn:${datasetId}:tbox:rules:backward`,  href: `/dataset/${datasetId}/rules#backward`,  description: "Query-time LP rules" },
-  { role: "Asserted Triples",uri: `urn:${datasetId}:abox:asserted`,        href: `/dataset/${datasetId}/entities`,        description: "Extracted entities and relationships" },
-  { role: "Documents",       uri: `urn:${datasetId}:abox:asserted`,         href: `/dataset/${datasetId}/documents`,       description: "Source documents referenced in provenance", hideCount: true },
-  { role: "Inferred Triples",uri: `urn:${datasetId}:abox:inferred`,        href: null,                                    description: "Materialized forward-chaining output (Phase 4)" },
-  { role: "Normalization",   uri: `urn:${datasetId}:normalization`,        href: `/dataset/${datasetId}/normalization`,    description: "owl:sameAs links (Phase 2)" },
-  { role: "System Health",       uri: `urn:${datasetId}:system:health`,    href: null,                                    description: "Load events and ontology version lineage" },
-  { role: "Reasoning Playground", uri: `urn:${datasetId}:abox:asserted`,  href: `/dataset/${datasetId}/reasoning`,       description: "Test custom backward-chaining rules at runtime", hideCount: true },
+  { role: "Ontology",          uri: `urn:${datasetId}:tbox:ontology`,       href: `/dataset/${datasetId}/ontology`,       description: "OWL classes and properties",                       icon: "account_tree" },
+  { role: "Forward Rules",     uri: `urn:${datasetId}:tbox:rules:forward`,  href: `/dataset/${datasetId}/rules#forward`,  description: "Materialized RETE rules",                          icon: "rule" },
+  { role: "Backward Rules",    uri: `urn:${datasetId}:tbox:rules:backward`, href: `/dataset/${datasetId}/rules#backward`, description: "Query-time LP rules",                              icon: "rule" },
+  { role: "Asserted Triples",  uri: `urn:${datasetId}:abox:asserted`,       href: `/dataset/${datasetId}/entities`,       description: "Extracted entities and relationships",             icon: "grain" },
+  { role: "Documents",         uri: `urn:${datasetId}:abox:asserted`,       href: `/dataset/${datasetId}/documents`,      description: "Source documents referenced in provenance",        icon: "description",  hideCount: true },
+  { role: "Inferred Triples",  uri: `urn:${datasetId}:abox:inferred`,       href: null,                                   description: "Materialized forward-chaining output (Phase 4)",   icon: "auto_awesome" },
+  { role: "Normalization",     uri: `urn:${datasetId}:normalization`,        href: `/dataset/${datasetId}/normalization`,  description: "owl:sameAs links (Phase 2)",                        icon: "merge" },
+  { role: "System Health",     uri: `urn:${datasetId}:system:health`,       href: null,                                   description: "Load events and ontology version lineage",          icon: "monitor_heart" },
+  { role: "Reasoning",         uri: `urn:${datasetId}:abox:asserted`,       href: `/dataset/${datasetId}/reasoning`,      description: "Test custom backward-chaining rules at runtime",   icon: "psychology",  hideCount: true },
 ];
 
-// Get triple count per named graph
 const countSparql = `
   SELECT ?graph (COUNT(*) AS ?count) WHERE {
     GRAPH ?graph { ?s ?p ?o }
@@ -50,53 +49,95 @@ try {
 } catch { /* backend unavailable */ }
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{datasetId} — unconcealment</title>
-    <style>
-      body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-      h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
-      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
-      .card {
-        border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem 1.25rem;
-        text-decoration: none; color: inherit; display: block;
-      }
-      .card:hover { border-color: #1a6bb5; background: #f5f9ff; }
-      .card.disabled { opacity: 0.5; cursor: default; pointer-events: none; }
-      .card__role { font-weight: 600; font-size: 0.95rem; margin: 0 0 0.2rem; }
-      .card__uri  { font-size: 0.72rem; color: #888; font-family: monospace; word-break: break-all; margin: 0 0 0.5rem; }
-      .card__desc { font-size: 0.85rem; color: #555; margin: 0; }
-      .card__count { float: right; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; }
-    </style>
-  </head>
-  <body>
-    <DatasetNav datasetId={datasetId} current="overview" />
-    <h1>{datasetId}</h1>
-    <p style="color:#555;margin-top:0;font-size:0.9rem">Named graphs in this dataset</p>
+<BaseLayout title={`${datasetId} — unconcealment`}>
+  <DatasetNav datasetId={datasetId} current="overview" />
 
-    <div class="grid">
-      {graphs.map(g => {
-        const count = counts[g.uri];
-        return g.href ? (
-          <a class="card" href={g.href}>
-            <p class="card__role">
-              {g.role}
-              {!g.hideCount && count !== undefined && <span class="card__count">{count.toLocaleString()}</span>}
-            </p>
-            <p class="card__uri">{g.uri}</p>
-            <p class="card__desc">{g.description}</p>
-          </a>
-        ) : (
-          <div class="card disabled">
-            <p class="card__role">{g.role}</p>
-            <p class="card__uri">{g.uri}</p>
-            <p class="card__desc">{g.description}</p>
+  <!-- Page header -->
+  <div style="margin-bottom: 1.75rem;">
+    <span
+      style="display: block; font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em; color: #0040e0; font-family: 'Inter', sans-serif; margin-bottom: 0.375rem;"
+    >
+      Named Graphs
+    </span>
+    <h1
+      style="font-family: 'Manrope', sans-serif; font-size: 1.75rem; font-weight: 800; color: #191c1e; letter-spacing: -0.025em;"
+    >
+      {datasetId}
+    </h1>
+  </div>
+
+  <!-- Graph cards grid -->
+  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 0.875rem;">
+    {graphs.map(g => {
+      const count = counts[g.uri];
+      const isAvailable = !!g.href;
+      return isAvailable ? (
+        <a
+          href={g.href}
+          style="display: block; background: #ffffff; border-radius: 1.25rem; padding: 1.25rem 1.375rem; text-decoration: none; transition: box-shadow 0.2s, transform 0.2s; box-shadow: 0px 4px 20px rgba(25,28,30,0.03), 0px 8px 24px rgba(18,74,240,0.04);"
+          onmouseover="this.style.boxShadow='0px 4px 20px rgba(25,28,30,0.06), 0px 12px 40px rgba(18,74,240,0.09)';this.style.transform='translateY(-1px)'"
+          onmouseout="this.style.boxShadow='0px 4px 20px rgba(25,28,30,0.03), 0px 8px 24px rgba(18,74,240,0.04)';this.style.transform='translateY(0)'"
+        >
+          <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem;">
+            <div
+              style="width: 2rem; height: 2rem; border-radius: 0.625rem; background: #dde1ff; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"
+            >
+              <span
+                class="material-symbols-outlined"
+                style="font-size: 0.9375rem; color: #0040e0; font-variation-settings: 'FILL' 0, 'wght' 400;"
+              >
+                {g.icon}
+              </span>
+            </div>
+            {!g.hideCount && count !== undefined && (
+              <span class="badge-count">{count.toLocaleString()}</span>
+            )}
           </div>
-        );
-      })}
-    </div>
-  </body>
-</html>
+          <h2
+            style="font-family: 'Manrope', sans-serif; font-size: 0.9375rem; font-weight: 700; color: #191c1e; margin-bottom: 0.3rem;"
+          >
+            {g.role}
+          </h2>
+          <p style="font-size: 0.775rem; color: #747688; font-family: 'Inter', sans-serif; line-height: 1.45; margin-bottom: 0.5rem;">
+            {g.description}
+          </p>
+          <code
+            style="font-size: 0.65rem; color: #c4c5d9; font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; display: block;"
+          >
+            {g.uri}
+          </code>
+        </a>
+      ) : (
+        <div
+          style="display: block; background: #f7f9fb; border-radius: 1.25rem; padding: 1.25rem 1.375rem; opacity: 0.45; cursor: not-allowed;"
+        >
+          <div style="display: flex; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.75rem;">
+            <div
+              style="width: 2rem; height: 2rem; border-radius: 0.625rem; background: #eceef0; display: flex; align-items: center; justify-content: center; flex-shrink: 0;"
+            >
+              <span
+                class="material-symbols-outlined"
+                style="font-size: 0.9375rem; color: #747688; font-variation-settings: 'FILL' 0, 'wght' 300;"
+              >
+                {g.icon}
+              </span>
+            </div>
+          </div>
+          <h2
+            style="font-family: 'Manrope', sans-serif; font-size: 0.9375rem; font-weight: 700; color: #191c1e; margin-bottom: 0.3rem;"
+          >
+            {g.role}
+          </h2>
+          <p style="font-size: 0.775rem; color: #747688; font-family: 'Inter', sans-serif; line-height: 1.45; margin-bottom: 0.5rem;">
+            {g.description}
+          </p>
+          <code
+            style="font-size: 0.65rem; color: #c4c5d9; font-family: ui-monospace, Menlo, Consolas, monospace; word-break: break-all; display: block;"
+          >
+            {g.uri}
+          </code>
+        </div>
+      );
+    })}
+  </div>
+</BaseLayout>

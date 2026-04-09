@@ -6,59 +6,56 @@ interface Props {
 const { datasetId, current } = Astro.props;
 
 const tabs = [
-  { id: "overview",      label: "Overview",      href: `/dataset/${datasetId}` },
-  { id: "entities",      label: "Entities",      href: `/dataset/${datasetId}/entities` },
-  { id: "documents",     label: "Documents",     href: `/dataset/${datasetId}/documents` },
-  { id: "ontology",      label: "Ontology",      href: `/dataset/${datasetId}/ontology` },
-  { id: "rules",         label: "Rules",         href: `/dataset/${datasetId}/rules` },
-  { id: "normalization", label: "Normalization", href: `/dataset/${datasetId}/normalization` },
-  { id: "reasoning",     label: "Reasoning",     href: `/dataset/${datasetId}/reasoning` },
+  { id: "overview",      label: "Overview",      href: `/dataset/${datasetId}`,                  icon: "hub" },
+  { id: "entities",      label: "Entities",      href: `/dataset/${datasetId}/entities`,          icon: "grain" },
+  { id: "documents",     label: "Documents",     href: `/dataset/${datasetId}/documents`,         icon: "description" },
+  { id: "ontology",      label: "Ontology",      href: `/dataset/${datasetId}/ontology`,          icon: "account_tree" },
+  { id: "rules",         label: "Rules",         href: `/dataset/${datasetId}/rules`,             icon: "rule" },
+  { id: "normalization", label: "Normalization",  href: `/dataset/${datasetId}/normalization`,     icon: "merge" },
+  { id: "reasoning",    label: "Reasoning",      href: `/dataset/${datasetId}/reasoning`,         icon: "psychology" },
 ];
 ---
 
-<nav class="ds-nav">
-  <a class="ds-nav__back" href="/">← All datasets</a>
-  <span class="ds-nav__sep">/</span>
-  <span class="ds-nav__dataset">{datasetId}</span>
-  <div class="ds-nav__tabs">
+<nav class="mb-8">
+  <!-- Breadcrumb -->
+  <div style="display: flex; align-items: center; gap: 0.375rem; margin-bottom: 1.25rem;">
+    <a
+      href="/"
+      style="font-size: 0.75rem; font-weight: 500; color: #747688; text-decoration: none; transition: color 0.15s;"
+      onmouseover="this.style.color='#0040e0'"
+      onmouseout="this.style.color='#747688'"
+    >
+      Datasets
+    </a>
+    <span style="font-size: 0.75rem; color: #c4c5d9;">›</span>
+    <span style="font-size: 0.75rem; font-weight: 600; color: #191c1e; font-family: 'Manrope', sans-serif;">
+      {datasetId}
+    </span>
+  </div>
+
+  <!-- Tab bar -->
+  <div
+    style="display: flex; gap: 0.25rem; overflow-x: auto; scrollbar-width: none; padding-bottom: 0.125rem; border-bottom: 1px solid rgba(196,197,217,0.35);"
+    class="no-scrollbar"
+  >
     {tabs.map(tab => (
       <a
         href={tab.href}
-        class={`ds-nav__tab ${current === tab.id ? "ds-nav__tab--active" : ""}`}
+        style={current === tab.id
+          ? "display:inline-flex;align-items:center;gap:0.4rem;padding:0.5rem 0.875rem;border-radius:0.5rem 0.5rem 0 0;color:#0040e0;font-family:'Manrope',sans-serif;font-size:0.8125rem;font-weight:700;text-decoration:none;white-space:nowrap;border-bottom:2px solid #0040e0;margin-bottom:-1px;background:rgba(0,64,224,0.04);transition:all 0.15s;"
+          : "display:inline-flex;align-items:center;gap:0.4rem;padding:0.5rem 0.875rem;border-radius:0.5rem 0.5rem 0 0;color:#747688;font-family:'Manrope',sans-serif;font-size:0.8125rem;font-weight:600;text-decoration:none;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all 0.15s;"
+        }
+        onmouseover={current !== tab.id ? "this.style.color='#191c1e';this.style.background='rgba(0,0,0,0.03)'" : undefined}
+        onmouseout={current !== tab.id ? "this.style.color='#747688';this.style.background='transparent'" : undefined}
       >
+        <span
+          class="material-symbols-outlined"
+          style="font-size: 0.9rem; font-variation-settings: 'FILL' 0, 'wght' 400, 'opsz' 20;"
+        >
+          {tab.icon}
+        </span>
         {tab.label}
       </a>
     ))}
   </div>
 </nav>
-
-<style>
-  .ds-nav {
-    margin-bottom: 1.75rem;
-  }
-  .ds-nav__back { color: #555; text-decoration: none; font-size: 0.9rem; }
-  .ds-nav__back:hover { color: #000; }
-  .ds-nav__sep  { color: #ccc; margin: 0 0.4rem; }
-  .ds-nav__dataset { font-size: 0.9rem; color: #333; font-weight: 500; }
-  .ds-nav__tabs {
-    display: flex;
-    gap: 0;
-    border-bottom: 2px solid #e0e0e0;
-    margin-top: 1.25rem;
-  }
-  .ds-nav__tab {
-    padding: 0.5rem 1rem;
-    font-size: 0.875rem;
-    text-decoration: none;
-    color: #555;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
-    transition: color 0.15s;
-  }
-  .ds-nav__tab:hover { color: #1a6bb5; }
-  .ds-nav__tab--active {
-    color: #1a6bb5;
-    border-bottom-color: #1a6bb5;
-    font-weight: 500;
-  }
-</style>

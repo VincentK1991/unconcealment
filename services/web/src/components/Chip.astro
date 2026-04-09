@@ -1,0 +1,24 @@
+---
+interface Props {
+  label: string;
+  href?: string;
+  /** "blue" = primary (default), "amber" = secondary, "gray" = neutral, "green" = success */
+  variant?: "blue" | "amber" | "gray" | "green";
+}
+const { label, href, variant = "blue" } = Astro.props;
+
+const variantStyle = {
+  blue:  "background: #dde1ff; color: #0040e0;",
+  amber: "background: #98f0ff; color: #004f58;",
+  gray:  "background: #eceef0; color: #434656;",
+  green: "background: #c8f5d8; color: #166534;",
+}[variant];
+
+const baseStyle = `display: inline-flex; align-items: center; padding: 0.2rem 0.65rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700; font-family: 'Inter', sans-serif; letter-spacing: 0.03em; text-decoration: none; transition: opacity 0.15s; ${variantStyle}`;
+---
+
+{href ? (
+  <a href={href} style={baseStyle} onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">{label}</a>
+) : (
+  <span style={baseStyle}>{label}</span>
+)}

@@ -1,7 +1,13 @@
 ---
 export const prerender = false;
 
+import BaseLayout from "../../../layouts/BaseLayout.astro";
 import DatasetNav from "../../../components/DatasetNav.astro";
+import DataTable from "../../../components/DataTable.astro";
+import StatCard from "../../../components/StatCard.astro";
+import Chip from "../../../components/Chip.astro";
+import ErrorAlert from "../../../components/ErrorAlert.astro";
+import EmptyState from "../../../components/EmptyState.astro";
 
 const { id: datasetId } = Astro.params;
 if (!datasetId) return Astro.redirect("/");
@@ -16,9 +22,6 @@ interface LabelBinding {
   slug?:  { value: string };
 }
 
-// Fetch canonicals and their aliases using the stored ex:isCanonical marker.
-// The indexing pipeline elects one canonical per cluster at write-time;
-// aliases are all other IRIs linked via owl:sameAs in either direction.
 interface RowBinding {
   canonical: { value: string };
   alias?:    { value: string };
@@ -75,7 +78,6 @@ try {
   error = "Backend unavailable";
 }
 
-// ── Group rows by canonical ───────────────────────────────────────────────────
 interface Cluster {
   canonical: string;
   aliases:   string[];
@@ -88,7 +90,6 @@ for (const row of rows) {
   const c = row.canonical.value;
   if (!clusterMap.has(c)) clusterMap.set(c, { canonical: c, aliases: [] });
   const cluster = clusterMap.get(c)!;
-
   if (row.alias?.value && !cluster.aliases.includes(row.alias.value)) {
     cluster.aliases.push(row.alias.value);
   }
@@ -102,10 +103,7 @@ for (const row of rows) {
 const clusters = Array.from(clusterMap.values())
   .sort((a, b) => b.aliases.length - a.aliases.length);
 
-// ── Batch-fetch labels for all IRIs ──────────────────────────────────────────
 const labelMap = new Map<string, { label?: string; slug?: string }>();
-
-// ── Collect all IRIs for label batch-fetch ────────────────────────────────────
 const allIriSet = new Set<string>();
 for (const c of clusters) {
   allIriSet.add(c.canonical);
@@ -114,7 +112,7 @@ for (const c of clusters) {
 const allIris = Array.from(allIriSet);
 
 if (allIris.length > 0) {
-  const values     = allIris.map(iri => `<${iri}>`).join(" ");
+  const values      = allIris.map(iri => `<${iri}>`).join(" ");
   const labelSparql = `
     PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
     PREFIX ex:   <${EX}>
@@ -146,7 +144,6 @@ if (allIris.length > 0) {
   } catch { /* best-effort */ }
 }
 
-// Method counts across all clusters
 const methodCounts: Record<string, number> = {};
 for (const c of clusters) {
   const m = c.bestMethod ?? "unknown";
@@ -161,115 +158,68 @@ const displayName = (iri: string) => {
 const entityLink  = (iri: string) =>
   `/entity/${encodeURIComponent(datasetId)}/${encodeURIComponent(iriTail(iri))}`;
 
-const methodBadge = (m: string | undefined): { label: string; color: string } => {
-  if (m === "exact-label")  return { label: "exact",  color: "#d4edda" };
-  if (m === "jaro-winkler") return { label: "fuzzy",  color: "#fff3cd" };
-  if (m === "llm-judge")    return { label: "llm",    color: "#cce5ff" };
-  return { label: m ?? "—", color: "#eee" };
+type ChipVariant = "blue" | "amber" | "gray" | "green";
+const methodVariant = (m: string | undefined): { label: string; variant: ChipVariant } => {
+  if (m === "exact-label")  return { label: "exact",  variant: "green" };
+  if (m === "jaro-winkler") return { label: "fuzzy",  variant: "amber" };
+  if (m === "llm-judge")    return { label: "llm",    variant: "blue"  };
+  return { label: m ?? "—", variant: "gray" };
 };
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Normalization — {datasetId} — unconcealment</title>
-    <style>
-      body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-      h1 { font-size: 1.5rem; margin: 0 0 0.25rem; }
-      .subtitle { color: #555; font-size: 0.9rem; margin: 0 0 1.25rem; font-family: monospace; }
-      .summary { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-      .stat { background: #f8f8f8; border: 1px solid #e5e5e5; border-radius: 6px; padding: 0.45rem 0.8rem; font-size: 0.85rem; }
-      .stat-n { font-weight: 600; font-size: 1rem; }
-      table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-      th { text-align: left; border-bottom: 2px solid #ccc; padding: 0.5rem 0.6rem; font-size: 0.8rem; color: #555; text-transform: uppercase; letter-spacing: 0.04em; }
-      td { padding: 0.5rem 0.6rem; border-bottom: 1px solid #eee; vertical-align: top; }
-      td:nth-child(3) { color: #777; font-size: 0.8rem; text-align: right; width: 4.5rem; }
-      td:nth-child(4) { width: 6rem; }
-      a { color: #1a6bb5; text-decoration: none; }
-      a:hover { text-decoration: underline; }
-      .canonical { font-weight: 500; }
-      .badge { display: inline-block; border-radius: 3px; padding: 0.1rem 0.45rem; font-size: 0.72rem; font-weight: 500; }
-      .alias-list { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.25rem; }
-      .alias-chip { display: inline-block; background: #f0f0f0; border: 1px solid #ddd; border-radius: 3px; padding: 0.1rem 0.4rem; font-size: 0.78rem; color: #1a6bb5; }
-      .alias-chip:hover { background: #e3ecf8; border-color: #b3cde8; }
-      .empty { color: #888; margin-top: 1rem; }
-      .error { color: #c00; }
-      .note { font-size: 0.78rem; color: #888; margin-top: 0.15rem; }
-    </style>
-  </head>
-  <body>
-    <DatasetNav datasetId={datasetId} current="normalization" />
-    <h1>Normalization</h1>
-    <p class="subtitle">{normGraph}</p>
+<BaseLayout title={`Normalization — ${datasetId} — unconcealment`}>
+  <DatasetNav datasetId={datasetId} current="normalization" />
 
-    {error && <p class="error">{error}</p>}
+  <div style="margin-bottom: 1.5rem;">
+    <h1 style="font-family: 'Manrope', sans-serif; font-size: 1.75rem; font-weight: 800; color: #191c1e; letter-spacing: -0.025em; margin-bottom: 0.25rem;">
+      Normalization
+    </h1>
+    <code style="font-size: 0.7rem; color: #c4c5d9;">{normGraph}</code>
+  </div>
 
-    {clusters.length === 0 && !error && (
-      <p class="empty">No normalization clusters found. Run the indexing pipeline to populate this graph.</p>
-    )}
+  {error && <ErrorAlert message={error} />}
+  {clusters.length === 0 && !error && (
+    <EmptyState message="No normalization clusters found. Run the indexing pipeline to populate this graph." />
+  )}
 
-    {clusters.length > 0 && (
-      <>
-        <div class="summary">
-          <div class="stat">
-            <span class="stat-n">{clusters.length}</span><br/>clusters
-          </div>
-          <div class="stat">
-            <span class="stat-n">{allIris.length}</span><br/>entities linked
-          </div>
-          {Object.entries(methodCounts).map(([m, n]) => {
-            const b = methodBadge(m);
-            return (
-              <div class="stat">
-                <span class="stat-n">{n}</span><br/>
-                <span class="badge" style={`background:${b.color}`}>{b.label}</span>
-              </div>
-            );
-          })}
-        </div>
+  {clusters.length > 0 && (
+    <>
+      <div style="display: flex; gap: 0.875rem; flex-wrap: wrap; margin-bottom: 1.75rem;">
+        <StatCard value={clusters.length} label="clusters" icon="hub" />
+        <StatCard value={allIris.length}  label="entities linked" icon="grain" />
+        {Object.entries(methodCounts).map(([m, n]) => {
+          const { label } = methodVariant(m);
+          return <StatCard value={n} label={label} />;
+        })}
+      </div>
 
-        <table>
-          <thead>
+      <DataTable columns={["Canonical entity", "Also known as", "Conf.", "Method"]}>
+        {clusters.map((c) => {
+          const mv   = methodVariant(c.bestMethod);
+          const conf = c.bestConf != null ? `${Math.round(c.bestConf * 100)}%` : "—";
+          return (
             <tr>
-              <th>Canonical entity</th>
-              <th>Also known as</th>
-              <th style="text-align:right">Conf.</th>
-              <th>Method</th>
+              <td>
+                <a class="link-primary" style="font-weight: 600;" href={entityLink(c.canonical)}>
+                  {displayName(c.canonical)}
+                </a>
+                <div style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.68rem; color: #c4c5d9; margin-top: 0.125rem;" title={c.canonical}>
+                  {iriTail(c.canonical)}
+                </div>
+              </td>
+              <td>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.25rem;">
+                  {c.aliases.map(iri => (
+                    <Chip label={displayName(iri)} href={entityLink(iri)} variant="gray" />
+                  ))}
+                </div>
+              </td>
+              <td style="font-size: 0.875rem; color: #747688; text-align: right;">{conf}</td>
+              <td><Chip label={mv.label} variant={mv.variant} /></td>
             </tr>
-          </thead>
-          <tbody>
-            {clusters.map((c) => {
-              const b    = methodBadge(c.bestMethod);
-              const conf = c.bestConf != null
-                ? `${Math.round(c.bestConf * 100)}%`
-                : "—";
-              return (
-                <tr>
-                  <td>
-                    <a class="canonical" href={entityLink(c.canonical)}>
-                      {displayName(c.canonical)}
-                    </a>
-                    <div class="note" title={c.canonical}>{iriTail(c.canonical)}</div>
-                  </td>
-                  <td>
-                    <div class="alias-list">
-                      {c.aliases.map(iri => (
-                        <a class="alias-chip" href={entityLink(iri)}>
-                          {displayName(iri)}
-                        </a>
-                      ))}
-                    </div>
-                  </td>
-                  <td>{conf}</td>
-                  <td><span class="badge" style={`background:${b.color}`}>{b.label}</span></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </>
-    )}
-  </body>
-</html>
+          );
+        })}
+      </DataTable>
+    </>
+  )}
+</BaseLayout>

@@ -1,0 +1,54 @@
+---
+interface Props {
+  columns: string[];
+  caption?: string;
+}
+const { columns, caption } = Astro.props;
+---
+
+<div class="overflow-x-auto" style="border-radius: 1rem; box-shadow: 0px 4px 20px rgba(25,28,30,0.04), 0px 12px 40px rgba(18,74,240,0.06);">
+  <table style="width: 100%; border-collapse: collapse; background: #ffffff; border-radius: 1rem; overflow: hidden;">
+    {caption && (
+      <caption
+        style="font-size: 0.7rem; color: #747688; margin-bottom: 0.25rem; text-align: left; padding: 0.75rem 1.25rem 0; font-family: 'Inter', sans-serif;"
+      >
+        {caption}
+      </caption>
+    )}
+    <thead>
+      <tr style="background: rgba(242,244,246,0.6);">
+        {columns.map((col) => (
+          <th
+            style="padding: 0.875rem 1.25rem; text-align: left; font-family: 'Inter', sans-serif; font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: #747688; white-space: nowrap;"
+          >
+            {col}
+          </th>
+        ))}
+      </tr>
+    </thead>
+    <tbody>
+      <slot />
+    </tbody>
+  </table>
+</div>
+
+<style>
+  /* Row styling — no borders, use hover tonal shift */
+  :global(tbody tr) {
+    transition: background 0.15s;
+    border-top: 1px solid rgba(196, 197, 217, 0.18);
+  }
+  :global(tbody tr:first-child) {
+    border-top: none;
+  }
+  :global(tbody tr:hover) {
+    background: rgba(242, 244, 246, 0.6);
+  }
+  :global(tbody td) {
+    padding: 0.875rem 1.25rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.875rem;
+    color: #191c1e;
+    vertical-align: middle;
+  }
+</style>

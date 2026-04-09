@@ -1,0 +1,30 @@
+---
+interface MetaRow {
+  key: string;
+  value: string;
+  code?: boolean;
+}
+interface Props {
+  rows: MetaRow[];
+}
+const { rows } = Astro.props;
+---
+
+<div
+  style="background: #f2f4f6; border-radius: 0.75rem; padding: 0.875rem 1.125rem; font-size: 0.8125rem; margin-bottom: 1.25rem;"
+>
+  {rows.map(({ key, value, code }) => (
+    <div style="display: flex; gap: 0.75rem; padding: 0.2rem 0;">
+      <span style="color: #747688; font-weight: 600; flex-shrink: 0; min-width: 5rem; font-family: 'Inter', sans-serif;">
+        {key}
+      </span>
+      {code ? (
+        <code style="color: #191c1e; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.78rem; word-break: break-all;">
+          {value}
+        </code>
+      ) : (
+        <span style="color: #191c1e; font-family: 'Inter', sans-serif;">{value}</span>
+      )}
+    </div>
+  ))}
+</div>

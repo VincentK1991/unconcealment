@@ -1,7 +1,10 @@
 ---
 export const prerender = false;
 
+import BaseLayout from "../../../layouts/BaseLayout.astro";
 import DatasetNav from "../../../components/DatasetNav.astro";
+import EmptyState from "../../../components/EmptyState.astro";
+import Chip from "../../../components/Chip.astro";
 
 const { id: datasetId } = Astro.params;
 if (!datasetId) return Astro.redirect("/");
@@ -51,86 +54,66 @@ const [forwardRules, backwardRules] = await Promise.all([
 ]);
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Rules — {datasetId} — unconcealment</title>
-    <style>
-      body   { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-      h1     { font-size: 1.5rem; margin: 0 0 0.25rem; }
-      h2     { font-size: 1.1rem; margin: 2rem 0 0.75rem; border-bottom: 2px solid #e0e0e0; padding-bottom: 0.4rem; }
-      .badge { display: inline-block; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; margin-left: 0.4rem; }
-      .graph { font-family: monospace; font-size: 0.8rem; color: #888; margin: 0 0 1rem; }
-      .empty { color: #888; font-size: 0.9rem; }
-      .rule  { border: 1px solid #e0e0e0; border-radius: 6px; margin-bottom: 0.75rem; overflow: hidden; }
-      .rule__header {
-        display: flex; align-items: center; gap: 0.75rem;
-        padding: 0.6rem 1rem; background: #fafafa; border-bottom: 1px solid #e8e8e8;
-      }
-      .rule__order { font-size: 0.75rem; color: #aaa; min-width: 1.5rem; }
-      .rule__name  { font-weight: 600; font-size: 0.9rem; flex: 1; }
-      .rule__status-active     { font-size: 0.72rem; background: #e6f4ea; color: #276827; border-radius: 4px; padding: 0.1rem 0.45rem; }
-      .rule__status-deprecated { font-size: 0.72rem; background: #f5f5f5; color: #888; border-radius: 4px; padding: 0.1rem 0.45rem; }
-      .rule__body  { padding: 0.75rem 1rem; }
-      pre  { margin: 0; font-size: 0.82rem; color: #222; white-space: pre-wrap; word-break: break-word; font-family: "SF Mono", "Fira Code", monospace; }
-    </style>
-  </head>
-  <body>
-    <DatasetNav datasetId={datasetId} current="rules" />
-    <h1>Rules</h1>
+<BaseLayout title={`Rules — ${datasetId} — unconcealment`}>
+  <DatasetNav datasetId={datasetId} current="rules" />
 
-    <!-- Forward Rules -->
-    <h2 id="forward">
-      Forward Rules
-      <span class="badge">{forwardRules.length}</span>
-      <span style="font-size:0.75rem;color:#888;font-weight:400;margin-left:0.5rem">materialized · RETE</span>
-    </h2>
-    <p class="graph">{forwardGraph}</p>
+  <h1 style="font-family: 'Manrope', sans-serif; font-size: 1.75rem; font-weight: 800; color: #191c1e; letter-spacing: -0.025em; margin-bottom: 1.5rem;">
+    Rules
+  </h1>
+
+  <!-- Forward Rules -->
+  <section id="forward" style="margin-bottom: 2.5rem;">
+    <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.375rem; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(196,197,217,0.3);">
+      <h2 style="font-family: 'Manrope', sans-serif; font-size: 1.125rem; font-weight: 700; color: #191c1e;">Forward Rules</h2>
+      <span class="badge-count">{forwardRules.length}</span>
+      <span style="font-size: 0.7rem; color: #c4c5d9; font-family: 'Inter', sans-serif;">materialized · RETE</span>
+    </div>
+    <code style="font-size: 0.7rem; color: #c4c5d9; display: block; margin-bottom: 0.875rem;">{forwardGraph}</code>
 
     {forwardRules.length === 0
-      ? <p class="empty">No forward rules found in graph.</p>
+      ? <EmptyState message="No forward rules found in graph." />
       : forwardRules.map(r => (
-          <div class="rule">
-            <div class="rule__header">
-              <span class="rule__order">#{r.order.value}</span>
-              <span class="rule__name">{r.name.value}</span>
-              <span class={r.status.value === "active" ? "rule__status-active" : "rule__status-deprecated"}>
-                {r.status.value}
-              </span>
+          <div
+            style="background: #ffffff; border-radius: 1rem; margin-bottom: 0.625rem; overflow: hidden; box-shadow: 0px 4px 20px rgba(25,28,30,0.03), 0px 8px 24px rgba(18,74,240,0.04);"
+          >
+            <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 1.125rem; background: #f2f4f6;">
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.7rem; color: #c4c5d9; min-width: 1.5rem;">#{r.order.value}</span>
+              <span style="font-family: 'Manrope', sans-serif; font-size: 0.875rem; font-weight: 700; color: #191c1e; flex: 1;">{r.name.value}</span>
+              <Chip label={r.status.value} variant={r.status.value === "active" ? "green" : "gray"} />
             </div>
-            <div class="rule__body">
-              <pre>{r.body.value.trim()}</pre>
+            <div style="padding: 0.875rem 1.125rem;">
+              <pre style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.75rem; color: #434656; white-space: pre-wrap; word-break: break-words; line-height: 1.6;">{r.body.value.trim()}</pre>
             </div>
           </div>
         ))
     }
+  </section>
 
-    <!-- Backward Rules -->
-    <h2 id="backward">
-      Backward Rules
-      <span class="badge">{backwardRules.length}</span>
-      <span style="font-size:0.75rem;color:#888;font-weight:400;margin-left:0.5rem">query-time · LP</span>
-    </h2>
-    <p class="graph">{backwardGraph}</p>
+  <!-- Backward Rules -->
+  <section id="backward">
+    <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-bottom: 0.375rem; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(196,197,217,0.3);">
+      <h2 style="font-family: 'Manrope', sans-serif; font-size: 1.125rem; font-weight: 700; color: #191c1e;">Backward Rules</h2>
+      <span class="badge-count">{backwardRules.length}</span>
+      <span style="font-size: 0.7rem; color: #c4c5d9; font-family: 'Inter', sans-serif;">query-time · LP</span>
+    </div>
+    <code style="font-size: 0.7rem; color: #c4c5d9; display: block; margin-bottom: 0.875rem;">{backwardGraph}</code>
 
     {backwardRules.length === 0
-      ? <p class="empty">No backward rules found in graph.</p>
+      ? <EmptyState message="No backward rules found in graph." />
       : backwardRules.map(r => (
-          <div class="rule">
-            <div class="rule__header">
-              <span class="rule__order">#{r.order.value}</span>
-              <span class="rule__name">{r.name.value}</span>
-              <span class={r.status.value === "active" ? "rule__status-active" : "rule__status-deprecated"}>
-                {r.status.value}
-              </span>
+          <div
+            style="background: #ffffff; border-radius: 1rem; margin-bottom: 0.625rem; overflow: hidden; box-shadow: 0px 4px 20px rgba(25,28,30,0.03), 0px 8px 24px rgba(18,74,240,0.04);"
+          >
+            <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.625rem 1.125rem; background: #f2f4f6;">
+              <span style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.7rem; color: #c4c5d9; min-width: 1.5rem;">#{r.order.value}</span>
+              <span style="font-family: 'Manrope', sans-serif; font-size: 0.875rem; font-weight: 700; color: #191c1e; flex: 1;">{r.name.value}</span>
+              <Chip label={r.status.value} variant={r.status.value === "active" ? "green" : "gray"} />
             </div>
-            <div class="rule__body">
-              <pre>{r.body.value.trim()}</pre>
+            <div style="padding: 0.875rem 1.125rem;">
+              <pre style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.75rem; color: #434656; white-space: pre-wrap; word-break: break-words; line-height: 1.6;">{r.body.value.trim()}</pre>
             </div>
           </div>
         ))
     }
-  </body>
-</html>
+  </section>
+</BaseLayout>

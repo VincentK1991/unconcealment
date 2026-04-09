@@ -1,0 +1,115 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description?: string;
+  /** "narrow" = entity/document pages (~720px), "wide" = dataset pages (~1200px), "full" = viewer/playground (~1400px) */
+  width?: "narrow" | "wide" | "full";
+}
+
+const { title, description, width = "wide" } = Astro.props;
+
+const maxWidth = {
+  narrow: "56rem",   /* ~896px  */
+  wide:   "75rem",   /* ~1200px */
+  full:   "87.5rem", /* ~1400px */
+}[width];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+
+    <!-- Fonts: Manrope (headlines) + Inter (body) + Material Symbols -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+      rel="stylesheet"
+    />
+  </head>
+
+  <body>
+    <!-- ── Top Bar (full-width, glassmorphic) ──────────────── -->
+    <header
+      id="topbar"
+      style="
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        z-index: 50;
+        height: 3.25rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 2rem;
+        background: rgba(247,249,251,0.75);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        box-shadow: 0 1px 0 rgba(196,197,217,0.2), 0 4px 20px rgba(25,28,30,0.04);
+        transition: background 0.3s;
+      "
+    >
+      <!-- Brand -->
+      <a href="/" style="text-decoration: none; display: flex; align-items: baseline; gap: 0.5rem;">
+        <span
+          style="font-family: 'Manrope', sans-serif; font-size: 1rem; font-weight: 800; color: #0040e0; letter-spacing: -0.02em;"
+        >
+          unconcealment
+        </span>
+        <span
+          style="font-size: 0.6rem; font-weight: 700; color: #c4c5d9; text-transform: uppercase; letter-spacing: 0.14em;"
+        >
+          Knowledge Graph
+        </span>
+      </a>
+
+      <!-- Right slot -->
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <div
+          style="width: 1.875rem; height: 1.875rem; border-radius: 9999px; background: rgba(0,64,224,0.08); display: flex; align-items: center; justify-content: center;"
+        >
+          <span
+            class="material-symbols-outlined"
+            style="font-size: 0.9375rem; color: #0040e0; font-variation-settings: 'FILL' 0, 'wght' 400;"
+          >
+            account_circle
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ── Main Content — full viewport, centered ───────────── -->
+    <main
+      style="
+        padding-top: 3.25rem;
+        min-height: 100vh;
+        background: #f7f9fb;
+      "
+    >
+      <div style={`max-width: ${maxWidth}; margin: 0 auto; padding: 2.5rem 2rem;`}>
+        <slot />
+      </div>
+    </main>
+
+    <!-- ── Frost transition on scroll ───────────────────────── -->
+    <script>
+      const topbar = document.getElementById("topbar");
+      if (topbar) {
+        window.addEventListener("scroll", () => {
+          topbar.style.background = window.scrollY > 8
+            ? "rgba(247,249,251,0.94)"
+            : "rgba(247,249,251,0.75)";
+        }, { passive: true });
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+---
+interface Props {
+  value: string | number;
+  label: string;
+  icon?: string;
+}
+const { value, label, icon } = Astro.props;
+---
+
+<div
+  class="glass-card"
+  style="border-radius: 1.25rem; padding: 1.25rem 1.5rem; display: flex; align-items: center; gap: 1.25rem;"
+>
+  {icon && (
+    <div
+      style="width: 3rem; height: 3rem; border-radius: 9999px; background: rgba(0,64,224,0.08); display: flex; align-items: center; justify-content: center; flex-shrink: 0;"
+    >
+      <span
+        class="material-symbols-outlined"
+        style="font-size: 1.375rem; color: #0040e0; font-variation-settings: 'FILL' 0, 'wght' 400;"
+      >
+        {icon}
+      </span>
+    </div>
+  )}
+  <div>
+    <div
+      style="font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: #747688; font-family: 'Inter', sans-serif; margin-bottom: 0.25rem;"
+    >
+      {label}
+    </div>
+    <div
+      style="font-family: 'Manrope', sans-serif; font-size: 1.625rem; font-weight: 800; color: #191c1e; line-height: 1;"
+    >
+      {value}
+    </div>
+  </div>
+</div>

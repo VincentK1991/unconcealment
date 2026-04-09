@@ -1,7 +1,11 @@
 ---
 export const prerender = false;
 
+import BaseLayout from "../../../layouts/BaseLayout.astro";
 import DatasetNav from "../../../components/DatasetNav.astro";
+import DataTable from "../../../components/DataTable.astro";
+import ErrorAlert from "../../../components/ErrorAlert.astro";
+import EmptyState from "../../../components/EmptyState.astro";
 
 const { id: datasetId } = Astro.params;
 if (!datasetId) return Astro.redirect("/");
@@ -48,64 +52,35 @@ try {
 const keyFromDocumentIri = (iri: string) => iri.split("/").pop() ?? iri;
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Documents — {datasetId} — unconcealment</title>
-    <style>
-      body  { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-      h1    { font-size: 1.5rem; margin: 0 0 0.25rem; }
-      .sub  { color: #555; margin: 0 0 1.5rem; font-size: 0.85rem; font-family: monospace; }
-      .error{ color: #c00; background: #fff0f0; border: 1px solid #fcc; padding: 0.75rem 1rem; border-radius: 6px; margin: 1rem 0; }
-      .empty{ color: #888; margin-top: 2rem; font-size: 0.9rem; }
-      table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-      th    { text-align: left; border-bottom: 2px solid #ccc; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: #444; text-transform: uppercase; letter-spacing: 0.04em; }
-      td    { padding: 0.45rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.875rem; vertical-align: top; }
-      td.iri { font-size: 0.72rem; color: #999; word-break: break-all; font-family: monospace; }
-      td.count { width: 10rem; color: #666; }
-      a.el  { color: #1a6bb5; text-decoration: none; }
-      a.el:hover { text-decoration: underline; }
-      .badge{ display: inline-block; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; margin-left: 0.4rem; }
-    </style>
-  </head>
-  <body>
-    <DatasetNav datasetId={datasetId} current="documents" />
-    <h1>
-      Documents
-      {docs.length > 0 && <span class="badge">{docs.length}</span>}
-    </h1>
-    <p class="sub">Provenance source documents from <code>{aboxAsserted}</code></p>
+<BaseLayout title={`Documents — ${datasetId} — unconcealment`}>
+  <DatasetNav datasetId={datasetId} current="documents" />
 
-    {error && <div class="error"><strong>Query failed:</strong> {error}</div>}
+  <div style="margin-bottom: 1.5rem;">
+    <div style="display: flex; align-items: baseline; gap: 0.625rem; margin-bottom: 0.25rem;">
+      <h1 style="font-family: 'Manrope', sans-serif; font-size: 1.75rem; font-weight: 800; color: #191c1e; letter-spacing: -0.025em;">
+        Documents
+      </h1>
+      {docs.length > 0 && <span class="badge-count">{docs.length}</span>}
+    </div>
+    <p style="font-size: 0.75rem; color: #747688;">Provenance source documents from <code style="color: #c4c5d9;">{aboxAsserted}</code></p>
+  </div>
 
-    {!error && docs.length === 0 && (
-      <p class="empty">
-        No source documents found in provenance annotations yet.
-      </p>
-    )}
+  {error && <ErrorAlert message={`Query failed: ${error}`} />}
+  {!error && docs.length === 0 && <EmptyState message="No source documents found in provenance annotations yet." />}
 
-    {docs.length > 0 && (
-      <table>
-        <thead>
-          <tr><th>Document</th><th>Triples Referencing</th><th>Document IRI</th></tr>
-        </thead>
-        <tbody>
-          {docs.map(row => {
-            const iri = row.document.value;
-            const key = keyFromDocumentIri(iri);
-            return (
-              <tr>
-                <td><a class="el" href={`/document/${encodeURIComponent(key)}?dataset=${encodeURIComponent(datasetId)}`}>{key}</a></td>
-                <td class="count">{Number(row.tripleCount.value).toLocaleString()}</td>
-                <td class="iri">{iri}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    )}
-  </body>
-</html>
-
+  {docs.length > 0 && (
+    <DataTable columns={["Document", "Triples Referencing", "Document IRI"]}>
+      {docs.map(row => {
+        const iri = row.document.value;
+        const key = keyFromDocumentIri(iri);
+        return (
+          <tr>
+            <td><a class="link-primary" href={`/document/${encodeURIComponent(key)}?dataset=${encodeURIComponent(datasetId)}`}>{key}</a></td>
+            <td style="color: #747688;">{Number(row.tripleCount.value).toLocaleString()}</td>
+            <td style="font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.7rem; color: #c4c5d9; word-break: break-all;">{iri}</td>
+          </tr>
+        );
+      })}
+    </DataTable>
+  )}
+</BaseLayout>

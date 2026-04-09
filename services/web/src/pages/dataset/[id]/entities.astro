@@ -1,7 +1,11 @@
 ---
 export const prerender = false;
 
+import BaseLayout from "../../../layouts/BaseLayout.astro";
 import DatasetNav from "../../../components/DatasetNav.astro";
+import DataTable from "../../../components/DataTable.astro";
+import ErrorAlert from "../../../components/ErrorAlert.astro";
+import EmptyState from "../../../components/EmptyState.astro";
 
 const { id: datasetId } = Astro.params;
 if (!datasetId) return Astro.redirect("/");
@@ -23,7 +27,6 @@ interface EntityBinding {
 
 const aboxAsserted = `urn:${datasetId}:abox:asserted`;
 
-// Escape a string for safe SPARQL literal injection (no external input reaches a URI position)
 const escapeSparql = (s: string) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
 const searchFilter = q
@@ -98,7 +101,7 @@ try {
 
 const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-const shortLabel    = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
+const shortLabel      = (iri: string) => iri.split(/[/#]/).pop() ?? iri;
 const entityIdFromIri = (iri: string) => iri.split("/").pop() ?? iri;
 
 const pageUrl = (p: number) => {
@@ -108,7 +111,6 @@ const pageUrl = (p: number) => {
   return `?${params.toString()}`;
 };
 
-// Build pagination items in frontmatter to avoid TypeScript generics in JSX
 type PageItem = { kind: "page"; n: number } | { kind: "ellipsis" };
 const paginationItems: PageItem[] = [];
 if (totalPages > 1) {
@@ -123,141 +125,103 @@ if (totalPages > 1) {
 }
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Entities — {datasetId} — unconcealment</title>
-    <style>
-      body  { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
-      h1    { font-size: 1.5rem; margin: 0 0 0.25rem; }
-      .sub  { color: #555; margin: 0 0 1.5rem; font-size: 0.85rem; font-family: monospace; }
-      .error{ color: #c00; background: #fff0f0; border: 1px solid #fcc; padding: 0.75rem 1rem; border-radius: 6px; margin: 1rem 0; }
-      .empty{ color: #888; margin-top: 2rem; font-size: 0.9rem; }
+<BaseLayout title={`Entities — ${datasetId} — unconcealment`}>
+  <DatasetNav datasetId={datasetId} current="entities" />
 
-      /* Search bar */
-      .search-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-      .search-row input[type="search"] {
-        flex: 1; padding: 0.45rem 0.75rem; border: 1px solid #ccc; border-radius: 6px;
-        font-size: 0.9rem; outline: none;
-      }
-      .search-row input[type="search"]:focus { border-color: #1a6bb5; box-shadow: 0 0 0 2px #c8dcf5; }
-      .search-row button {
-        padding: 0.45rem 1rem; background: #1a6bb5; color: #fff; border: none;
-        border-radius: 6px; font-size: 0.9rem; cursor: pointer;
-      }
-      .search-row button:hover { background: #155a9a; }
-      .search-clear { align-self: center; font-size: 0.85rem; color: #888; text-decoration: none; margin-left: 0.25rem; }
-      .search-clear:hover { color: #333; }
-      .result-meta { font-size: 0.8rem; color: #666; margin-bottom: 0.5rem; }
+  <div style="margin-bottom: 1.5rem;">
+    <div style="display: flex; align-items: baseline; gap: 0.625rem; margin-bottom: 0.25rem;">
+      <h1 style="font-family: 'Manrope', sans-serif; font-size: 1.75rem; font-weight: 800; color: #191c1e; letter-spacing: -0.025em;">
+        Entities
+      </h1>
+      {total > 0 && <span class="badge-count">{total.toLocaleString()}</span>}
+    </div>
+    <code style="font-size: 0.7rem; color: #c4c5d9;">{aboxAsserted}</code>
+  </div>
 
-      /* Table */
-      table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-      th    { text-align: left; border-bottom: 2px solid #ccc; padding: 0.45rem 0.75rem; font-size: 0.8rem; color: #444; text-transform: uppercase; letter-spacing: 0.04em; }
-      td    { padding: 0.45rem 0.75rem; border-bottom: 1px solid #eee; font-size: 0.875rem; vertical-align: top; }
-      td.type    { color: #667; font-size: 0.8rem; }
-      td.comment { color: #555; font-size: 0.8rem; max-width: 420px; }
-      a.el  { color: #1a6bb5; text-decoration: none; }
-      a.el:hover { text-decoration: underline; }
-      .badge{ display: inline-block; background: #f0f0f0; border-radius: 10px; padding: 0.1rem 0.55rem; font-size: 0.75rem; color: #555; margin-left: 0.4rem; }
+  {error && <ErrorAlert message={`Query failed: ${error}`} />}
 
-      /* Pagination */
-      .pagination { display: flex; align-items: center; gap: 0.4rem; margin-top: 1.25rem; flex-wrap: wrap; }
-      .pagination a, .pagination span {
-        display: inline-block; padding: 0.3rem 0.65rem; border-radius: 5px;
-        font-size: 0.85rem; border: 1px solid #ddd; text-decoration: none; color: #333;
-      }
-      .pagination a:hover { background: #f0f5ff; border-color: #1a6bb5; }
-      .pagination .current { background: #1a6bb5; color: #fff; border-color: #1a6bb5; font-weight: 600; }
-      .pagination .disabled { color: #bbb; border-color: #eee; pointer-events: none; }
-      .pagination .ellipsis { border: none; color: #999; padding: 0.3rem 0.2rem; }
-    </style>
-  </head>
-  <body>
-    <DatasetNav datasetId={datasetId} current="entities" />
-    <h1>
-      Entities
-      {total > 0 && <span class="badge">{total.toLocaleString()}</span>}
-    </h1>
-    <p class="sub">{aboxAsserted}</p>
-
-    {error && <div class="error"><strong>Query failed:</strong> {error}</div>}
-
-    <!-- Search bar -->
-    <form class="search-row" method="get" action="">
+  <!-- Search bar -->
+  <form style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem; max-width: 32rem;" method="get" action="">
+    <div style="position: relative; flex: 1;">
+      <span
+        class="material-symbols-outlined"
+        style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 1rem; color: #747688; pointer-events: none;"
+      >
+        search
+      </span>
       <input
         type="search"
         name="q"
         value={q}
         placeholder="Search entities by label…"
         autocomplete="off"
+        class="input-lucid"
+        style="padding-left: 2.25rem;"
       />
-      <button type="submit">Search</button>
-      {q && <a class="search-clear" href={`?page=1`}>Clear</a>}
-    </form>
+    </div>
+    <button type="submit" class="btn-primary-pill" style="padding: 0.5rem 1rem; font-size: 0.8125rem;">Search</button>
+    {q && (
+      <a href="?page=1" class="btn-ghost-sm" style="white-space: nowrap;">Clear</a>
+    )}
+  </form>
 
-    {!error && entities.length === 0 && !q && (
-      <p class="empty">
-        No entities found. Run <code>just trigger {datasetId}</code> to index a test document.
+  {!error && entities.length === 0 && !q && (
+    <EmptyState message={`No entities found. Run just trigger ${datasetId} to index a test document.`} />
+  )}
+  {!error && entities.length === 0 && q && (
+    <EmptyState message={`No entities match "${q}".`} />
+  )}
+
+  {entities.length > 0 && (
+    <>
+      <p style="font-size: 0.75rem; color: #747688; margin-bottom: 0.75rem;">
+        {q
+          ? `${total.toLocaleString()} result${total !== 1 ? "s" : ""} for "${q}" — page ${page} of ${totalPages}`
+          : `Page ${page} of ${totalPages} (${total.toLocaleString()} total)`
+        }
       </p>
-    )}
 
-    {!error && entities.length === 0 && q && (
-      <p class="empty">No entities match <strong>"{q}"</strong>.</p>
-    )}
+      <DataTable columns={["Label", "Type", "Description"]}>
+        {entities.map(row => {
+          const entityId = entityIdFromIri(row.entity.value);
+          const label = row.label?.value ?? row.slug?.value ?? shortLabel(row.entity.value);
+          const type  = row.type ? shortLabel(row.type.value) : "—";
+          return (
+            <tr>
+              <td>
+                <a class="link-primary" href={`/entity/${encodeURIComponent(datasetId)}/${encodeURIComponent(entityId)}`}>
+                  {label}
+                </a>
+              </td>
+              <td style="font-size: 0.8125rem; color: #747688;">{type}</td>
+              <td style="font-size: 0.8125rem; color: #434656; max-width: 24rem;">{row.comment?.value ?? ""}</td>
+            </tr>
+          );
+        })}
+      </DataTable>
 
-    {entities.length > 0 && (
-      <>
-        <p class="result-meta">
-          {q
-            ? `${total.toLocaleString()} result${total !== 1 ? "s" : ""} for "${q}" — page ${page} of ${totalPages}`
-            : `Page ${page} of ${totalPages} (${total.toLocaleString()} total)`
+      <!-- Pagination -->
+      {paginationItems.length > 0 && (
+        <nav style="display: flex; flex-wrap: wrap; gap: 0.375rem; margin-top: 1.25rem;" aria-label="Pagination">
+          {page > 1
+            ? <a href={pageUrl(page - 1)} class="btn-ghost-sm">&#8249; Prev</a>
+            : <span class="btn-ghost-sm disabled">&#8249; Prev</span>
           }
-        </p>
-        <table>
-          <thead>
-            <tr><th>Label</th><th>Type</th><th>Description</th></tr>
-          </thead>
-          <tbody>
-            {entities.map(row => {
-              const entityId = entityIdFromIri(row.entity.value);
-              const label = row.label?.value ?? row.slug?.value ?? shortLabel(row.entity.value);
-              const type  = row.type ? shortLabel(row.type.value) : "—";
-              return (
-                <tr>
-                  <td><a class="el" href={`/entity/${encodeURIComponent(datasetId)}/${encodeURIComponent(entityId)}`}>{label}</a></td>
-                  <td class="type">{type}</td>
-                  <td class="comment">{row.comment?.value ?? ""}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
 
-        <!-- Pagination -->
-        {paginationItems.length > 0 && (
-          <nav class="pagination" aria-label="Pagination">
-            {page > 1
-              ? <a href={pageUrl(page - 1)}>&#8249; Prev</a>
-              : <span class="disabled">&#8249; Prev</span>
-            }
+          {paginationItems.map(item =>
+            item.kind === "ellipsis"
+              ? <span class="btn-ghost-sm" style="pointer-events: none;">&#8230;</span>
+              : item.n === page
+                ? <span class="btn-ghost-sm active">{item.n}</span>
+                : <a href={pageUrl(item.n)} class="btn-ghost-sm">{item.n}</a>
+          )}
 
-            {paginationItems.map(item =>
-              item.kind === "ellipsis"
-                ? <span class="ellipsis">&#8230;</span>
-                : item.n === page
-                  ? <span class="current">{item.n}</span>
-                  : <a href={pageUrl(item.n)}>{item.n}</a>
-            )}
-
-            {page < totalPages
-              ? <a href={pageUrl(page + 1)}>Next &#8250;</a>
-              : <span class="disabled">Next &#8250;</span>
-            }
-          </nav>
-        )}
-      </>
-    )}
-  </body>
-</html>
+          {page < totalPages
+            ? <a href={pageUrl(page + 1)} class="btn-ghost-sm">Next &#8250;</a>
+            : <span class="btn-ghost-sm disabled">Next &#8250;</span>
+          }
+        </nav>
+      )}
+    </>
+  )}
+</BaseLayout>

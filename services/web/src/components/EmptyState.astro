@@ -1,0 +1,22 @@
+---
+interface Props {
+  message: string;
+}
+const { message } = Astro.props;
+---
+
+<div
+  style="display: flex; flex-direction: column; align-items: center; gap: 0.625rem; padding: 2.5rem 1rem; text-align: center;"
+>
+  <span
+    class="material-symbols-outlined"
+    style="font-size: 2rem; color: #c4c5d9; font-variation-settings: 'FILL' 0, 'wght' 300;"
+  >
+    inbox
+  </span>
+  <p
+    style="font-size: 0.875rem; color: #747688; font-family: 'Inter', sans-serif; max-width: 32rem; line-height: 1.5;"
+  >
+    {message}
+  </p>
+</div>

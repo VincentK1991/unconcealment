@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>The Lucid Archive | Article Management</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&amp;family=Inter:wght@300;400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-high": "#e6e8ea",
+                        "secondary-fixed": "#98f0ff",
+                        "on-surface-variant": "#434656",
+                        "on-primary-fixed-variant": "#0035be",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-container": "#efefff",
+                        "secondary": "#006874",
+                        "primary-container": "#2e5bff",
+                        "on-tertiary": "#ffffff",
+                        "on-surface": "#191c1e",
+                        "tertiary-container": "#c04319",
+                        "primary-fixed-dim": "#b8c3ff",
+                        "surface-tint": "#124af0",
+                        "surface-dim": "#d8dadc",
+                        "error-container": "#ffdad6",
+                        "inverse-surface": "#2d3133",
+                        "inverse-primary": "#b8c3ff",
+                        "on-primary-fixed": "#001356",
+                        "surface-container": "#eceef0",
+                        "surface": "#f7f9fb",
+                        "on-error": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "surface-container-highest": "#e0e3e5",
+                        "tertiary-fixed": "#ffdbd0",
+                        "on-primary": "#ffffff",
+                        "on-background": "#191c1e",
+                        "on-tertiary-fixed": "#3a0a00",
+                        "outline": "#747688",
+                        "inverse-on-surface": "#eff1f3",
+                        "surface-container-low": "#f2f4f6",
+                        "on-secondary-fixed-variant": "#004f58",
+                        "primary-fixed": "#dde1ff",
+                        "surface-variant": "#e0e3e5",
+                        "tertiary": "#9e2b00",
+                        "error": "#ba1a1a",
+                        "on-error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#852300",
+                        "secondary-fixed-dim": "#45d8ed",
+                        "surface-bright": "#f7f9fb",
+                        "on-secondary-fixed": "#001f24",
+                        "background": "#f7f9fb",
+                        "secondary-container": "#5ce9fe",
+                        "primary": "#0040e0",
+                        "tertiary-fixed-dim": "#ffb59f",
+                        "on-secondary-container": "#006773",
+                        "outline-variant": "#c4c5d9",
+                        "on-tertiary-container": "#ffece7"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
+        .font-manrope { font-family: 'Manrope', sans-serif; }
+        .glass-header { backdrop-filter: blur(20px); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="text-on-surface">
+<!-- SideNavBar (Authority: JSON) -->
+<aside class="hidden md:flex fixed left-0 top-0 h-full w-64 z-[60] bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-2xl shadow-[12px_0_40px_rgba(18,74,240,0.06)] flex-col py-8 px-4 gap-2">
+<div class="mb-10 px-4">
+<h1 class="text-lg font-black text-blue-700 dark:text-blue-400 mb-1 tracking-tight font-manrope">The Lucid Archive</h1>
+<p class="text-xs font-semibold text-slate-500 uppercase tracking-widest">Knowledge Exhibition</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="text-slate-500 dark:text-slate-400 px-4 py-3 ml-2 flex items-center gap-3 transition-all duration-300 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 hover:text-blue-600 font-manrope font-semibold text-sm" href="#">
+<span class="material-symbols-outlined text-[20px]">auto_stories</span>
+                Curated Feed
+            </a>
+<a class="bg-blue-50/50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-xl px-4 py-3 ml-2 flex items-center gap-3 font-manrope font-semibold text-sm translate-x-1 duration-300" href="#">
+<span class="material-symbols-outlined text-[20px]">inventory_2</span>
+                Archives
+            </a>
+<a class="text-slate-500 dark:text-slate-400 px-4 py-3 ml-2 flex items-center gap-3 transition-all duration-300 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 hover:text-blue-600 font-manrope font-semibold text-sm" href="#">
+<span class="material-symbols-outlined text-[20px]">category</span>
+                Categories
+            </a>
+<a class="text-slate-500 dark:text-slate-400 px-4 py-3 ml-2 flex items-center gap-3 transition-all duration-300 hover:bg-blue-50/30 dark:hover:bg-blue-900/10 hover:text-blue-600 font-manrope font-semibold text-sm" href="#">
+<span class="material-symbols-outlined text-[20px]">groups</span>
+                Contributors
+            </a>
+</nav>
+<div class="mt-auto pt-6 border-t border-outline-variant/10">
+<button class="w-full bg-primary text-on-primary rounded-full py-3 px-6 font-bold text-sm mb-6 flex items-center justify-center gap-2 shadow-lg shadow-primary/20">
+<span class="material-symbols-outlined">add</span>
+                New Entry
+            </button>
+<a class="text-slate-500 dark:text-slate-400 px-4 py-3 ml-2 flex items-center gap-3 font-manrope font-semibold text-sm" href="#">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+                Settings
+            </a>
+<a class="text-slate-500 dark:text-slate-400 px-4 py-3 ml-2 flex items-center gap-3 font-manrope font-semibold text-sm" href="#">
+<span class="material-symbols-outlined text-[20px]">help</span>
+                Help Center
+            </a>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="md:ml-64 min-h-screen bg-background">
+<!-- TopAppBar (Authority: JSON) -->
+<header class="fixed top-0 right-0 left-0 md:left-64 z-50 h-16 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl shadow-[0_4px_20px_rgba(25,28,30,0.04)] flex justify-between items-center px-8">
+<div class="flex items-center gap-6 flex-1">
+<div class="relative w-full max-w-md">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[20px]">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-xl py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20 focus:bg-surface-container-lowest transition-all" placeholder="Search archives..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="p-2 rounded-full hover:bg-slate-100/50 transition-colors text-outline">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 rounded-full hover:bg-slate-100/50 transition-colors text-outline">
+<span class="material-symbols-outlined">settings</span>
+</button>
+<div class="h-8 w-8 rounded-full overflow-hidden border-2 border-primary/10">
+<img alt="User Avatar" class="w-full h-full object-cover" data-alt="close-up minimalist avatar of a professional curator wearing glasses and a clean white shirt" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBFUgn0C8qdVqW1D4arNCYElhH2_8cnf4AloOMnKuNXTnFFUlqq8_-put2EY6v4Sfmf9zEfLgWg6cSuJsN3Kz-hzy-WvZwBP7c3B-4M4WIq3fNn1fXsq81jCDKLPeBzuz-S5a5w6HeBvCQoFrSEyW8qk1WdiRpOEQV0_EXGXZFcEBuIDHI0agGqnkyS5Q2iwDwfJ7NbRiaMuXdgk3j-Fmjl8uUiaLIfWnFOfwW5-JZpylaDONHQP4NP8dvdNr_9eRIXhxBPM0NTibs"/>
+</div>
+</div>
+</header>
+<!-- Page Content Area -->
+<div class="pt-24 px-8 pb-12">
+<!-- Header Section -->
+<div class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+<div>
+<span class="text-[10px] font-bold tracking-[0.2em] text-primary uppercase font-label mb-2 block">Central Exhibition</span>
+<h2 class="text-3xl font-extrabold font-headline text-on-surface tracking-tight">Article Inventory</h2>
+</div>
+<!-- Filter Bar (Glassmorphic) -->
+<div class="flex items-center gap-3">
+<div class="group relative">
+<button class="bg-surface-container-low text-on-surface-variant px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+                            Category
+                            <span class="material-symbols-outlined text-[16px]">expand_more</span>
+</button>
+</div>
+<div class="group relative">
+<button class="bg-surface-container-low text-on-surface-variant px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined text-[18px]">calendar_today</span>
+                            Refresh Cycle
+                            <span class="material-symbols-outlined text-[16px]">expand_more</span>
+</button>
+</div>
+<button class="bg-primary/5 text-primary px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-primary/10 transition-colors">
+<span class="material-symbols-outlined text-[18px]">download</span>
+                        Export CSV
+                    </button>
+</div>
+</div>
+<!-- Modern Table Container -->
+<div class="bg-surface-container-lowest rounded-[1.5rem] shadow-[0_12px_40px_rgba(18,74,240,0.06)] overflow-hidden">
+<div class="overflow-x-auto">
+<table class="w-full border-collapse text-left">
+<thead>
+<tr class="bg-surface-container-low/50">
+<th class="py-5 px-6 text-[11px] font-bold uppercase tracking-wider text-outline font-label">Article Name</th>
+<th class="py-5 px-6 text-[11px] font-bold uppercase tracking-wider text-outline font-label">Category</th>
+<th class="py-5 px-6 text-[11px] font-bold uppercase tracking-wider text-outline font-label">Last SSR Refresh</th>
+<th class="py-5 px-6 text-[11px] font-bold uppercase tracking-wider text-outline font-label">Editor</th>
+<th class="py-5 px-6 text-[11px] font-bold uppercase tracking-wider text-outline font-label">Status</th>
+<th class="py-5 px-6 text-[11px] font-bold uppercase tracking-wider text-outline font-label text-right">Metrics</th>
+<th class="py-5 px-6 text-[11px] font-bold uppercase tracking-wider text-outline font-label"></th>
+</tr>
+</thead>
+<tbody class="divide-y divide-transparent">
+<!-- Row 1 -->
+<tr class="group hover:bg-surface-container-high/40 transition-all duration-200">
+<td class="py-6 px-6">
+<div class="flex items-center gap-4">
+<div class="h-10 w-10 rounded-xl bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">description</span>
+</div>
+<div>
+<div class="font-bold text-on-surface font-headline leading-tight">Quantum Entanglement Decoded</div>
+<div class="text-[11px] text-outline mt-1 font-medium tracking-tight">ID: ARC-9210-QX</div>
+</div>
+</div>
+</td>
+<td class="py-6 px-6">
+<span class="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-[11px] font-bold">Physics</span>
+</td>
+<td class="py-6 px-6 text-sm text-on-surface-variant font-medium">24 mins ago</td>
+<td class="py-6 px-6">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-200 overflow-hidden">
+<img alt="Editor" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCY5VksMUAmL1Kut3rTm9jsG7G8wv4vIM-BBxD7WXRroLJv_efOr4pAubdkfRvzk4CnB0iITnDvVw-XChJc_FvfYl354pJ2gl013RlNMn-5oMlVAnDqbtdG-LDcnR1zUe9AsgKVatc57HTZkrRNOqb43X18Ig7fCGgLAwkDODddlwg9IyUvI7mwkFyXUvfUgr8R64mwmgAp6mLGhNU5iXU2BM5WHsIpPf4GCGOdpfIm7lQrgVhiX5no33wUyhY3bIb6yxKFIPU80qQ"/>
+</div>
+<span class="text-sm font-semibold">Elena J.</span>
+</div>
+</td>
+<td class="py-6 px-6">
+<div class="flex items-center gap-1.5 text-primary font-bold text-xs">
+<span class="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
+                                        Published
+                                    </div>
+</td>
+<td class="py-6 px-6 text-right">
+<div class="flex flex-col items-end">
+<span class="text-sm font-bold text-on-surface">12.4k views</span>
+<span class="text-[10px] text-outline">892 citations</span>
+</div>
+</td>
+<td class="py-6 px-6 text-right">
+<button class="p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-outline">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="group hover:bg-surface-container-high/40 transition-all duration-200">
+<td class="py-6 px-6">
+<div class="flex items-center gap-4">
+<div class="h-10 w-10 rounded-xl bg-tertiary-fixed flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined">history_edu</span>
+</div>
+<div>
+<div class="font-bold text-on-surface font-headline leading-tight">The Silk Road Digital Twin</div>
+<div class="text-[11px] text-outline mt-1 font-medium tracking-tight">ID: ARC-1120-SR</div>
+</div>
+</div>
+</td>
+<td class="py-6 px-6">
+<span class="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-[11px] font-bold">History</span>
+</td>
+<td class="py-6 px-6 text-sm text-on-surface-variant font-medium">3 hours ago</td>
+<td class="py-6 px-6">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-200 overflow-hidden">
+<img alt="Editor" src="https://lh3.googleusercontent.com/aida-public/AB6AXuATqHH7tMGl8-voR_3QKQbCd_uzqAGbt1pMNcuYoegZBCUP8IrJTxxB2U9NeJk8u3e2yfLIuy34jr9p8reADWbzFrd_9MWpacXbC5oChRRk_Z-oSdtQEVff3n_nneonChfqni2ZtRcc9cBnPcto5Owb20BtG4gaq3zpEfePUg8dBkEM919f3pJkWP7QxhLOKdfjM3XJRrGIkZysXRUbZ8ahia8dToFTJOk7tJD6JvjpD8scZPtbbCaqrRiUj4qfxwDF1JTmqsPX8Bo"/>
+</div>
+<span class="text-sm font-semibold">Marcus W.</span>
+</div>
+</td>
+<td class="py-6 px-6">
+<div class="flex items-center gap-1.5 text-outline font-bold text-xs">
+<span class="h-2 w-2 rounded-full bg-outline/40"></span>
+                                        Draft
+                                    </div>
+</td>
+<td class="py-6 px-6 text-right">
+<div class="flex flex-col items-end">
+<span class="text-sm font-bold text-on-surface">1.2k views</span>
+<span class="text-[10px] text-outline">12 citations</span>
+</div>
+</td>
+<td class="py-6 px-6 text-right">
+<button class="p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-outline">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="group hover:bg-surface-container-high/40 transition-all duration-200">
+<td class="py-6 px-6">
+<div class="flex items-center gap-4">
+<div class="h-10 w-10 rounded-xl bg-secondary-fixed flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined">psychology</span>
+</div>
+<div>
+<div class="font-bold text-on-surface font-headline leading-tight">Neural Plasticity in Adulthood</div>
+<div class="text-[11px] text-outline mt-1 font-medium tracking-tight">ID: ARC-4482-NP</div>
+</div>
+</div>
+</td>
+<td class="py-6 px-6">
+<span class="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-[11px] font-bold">Science</span>
+</td>
+<td class="py-6 px-6 text-sm text-on-surface-variant font-medium">12 mins ago</td>
+<td class="py-6 px-6">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-200 overflow-hidden">
+<img alt="Editor" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBvFVmel78LUX_gNJVe-OkL_E-6zQuUO47p2ByBTw4CfmehAB3Mp61ifzcyBVavW-HMMPL3boVrqk5bowhPxtl5Qj1NjtuaeXv8vlOLdOoCmBR15mjDVmyHOop1mTYqEJaDJbkW9HMQk5zrT4XkhkS2r64omUoum5X1agEibUQWyRfZ3N3CdJqcyinPvzoS9ooAuGdlER43LB2Qzhg7iOqRsEQ5ArD6IGrSZs7RbWOrCDG6JzYfzF-KGmpqP4ZzG6lQcEf5c0tSq0c"/>
+</div>
+<span class="text-sm font-semibold">Sarah L.</span>
+</div>
+</td>
+<td class="py-6 px-6">
+<div class="flex items-center gap-1.5 text-primary font-bold text-xs">
+<span class="h-2 w-2 rounded-full bg-primary"></span>
+                                        Published
+                                    </div>
+</td>
+<td class="py-6 px-6 text-right">
+<div class="flex flex-col items-end">
+<span class="text-sm font-bold text-on-surface">45.1k views</span>
+<span class="text-[10px] text-outline">3.1k citations</span>
+</div>
+</td>
+<td class="py-6 px-6 text-right">
+<button class="p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-outline">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="group hover:bg-surface-container-high/40 transition-all duration-200">
+<td class="py-6 px-6">
+<div class="flex items-center gap-4">
+<div class="h-10 w-10 rounded-xl bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined">data_object</span>
+</div>
+<div>
+<div class="font-bold text-on-surface font-headline leading-tight">Large Language Models: Limits</div>
+<div class="text-[11px] text-outline mt-1 font-medium tracking-tight">ID: ARC-0091-LL</div>
+</div>
+</div>
+</td>
+<td class="py-6 px-6">
+<span class="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-[11px] font-bold">Technology</span>
+</td>
+<td class="py-6 px-6 text-sm text-on-surface-variant font-medium">8 hours ago</td>
+<td class="py-6 px-6">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded-full bg-slate-200 overflow-hidden">
+<img alt="Editor" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC2KnpE1E94Op69cNaD2zzSFdg5YuGLwCSb0e1wu5uvzyNuM0mx9l9_K3DZaHk0zNr39SLQae_8wasJlQoMcblIqgUjDetHdi6mPhvQEQP39oU6HQ54QsXP4m_9RjUpIU7_kQ4ryd0ykITEw6Ddelkrs6CpeDrPQRQ4Oq9gUxsOOGVJhN8LiArlEeF_YA_VrdwzNRIgxs8nwJ8crOu-3QEV-wqPCWpxeLU3bGN3K3iE_s_fP3eGBiOWNBUI9nQiZMLeszXZ2QnDylg"/>
+</div>
+<span class="text-sm font-semibold">Alan K.</span>
+</div>
+</td>
+<td class="py-6 px-6">
+<div class="flex items-center gap-1.5 text-primary font-bold text-xs">
+<span class="h-2 w-2 rounded-full bg-primary"></span>
+                                        Published
+                                    </div>
+</td>
+<td class="py-6 px-6 text-right">
+<div class="flex flex-col items-end">
+<span class="text-sm font-bold text-on-surface">102k views</span>
+<span class="text-[10px] text-outline">8.2k citations</span>
+</div>
+</td>
+<td class="py-6 px-6 text-right">
+<button class="p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-outline">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Footer -->
+<div class="py-6 px-8 bg-surface-container-low/30 flex flex-col md:flex-row items-center justify-between gap-4">
+<p class="text-xs font-medium text-outline">Showing <span class="text-on-surface font-bold">1-15</span> of <span class="text-on-surface font-bold">2,410</span> entries</p>
+<div class="flex items-center gap-2">
+<button class="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-container-low text-outline hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-xl bg-primary text-on-primary font-bold text-sm">1</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-container-low text-on-surface font-semibold text-sm hover:bg-surface-container-high transition-colors">2</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-container-low text-on-surface font-semibold text-sm hover:bg-surface-container-high transition-colors">3</button>
+<span class="px-2 text-outline">...</span>
+<button class="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-container-low text-on-surface font-semibold text-sm hover:bg-surface-container-high transition-colors">161</button>
+<button class="w-10 h-10 flex items-center justify-center rounded-xl bg-surface-container-low text-outline hover:bg-surface-container-high transition-colors">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Dashboard Widgets (Optional Detail) -->
+<div class="mt-10 grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="bg-surface-container-low/50 p-6 rounded-[1.5rem] flex items-center gap-6">
+<div class="h-14 w-14 rounded-full bg-white flex items-center justify-center shadow-sm text-primary">
+<span class="material-symbols-outlined text-[28px]">trending_up</span>
+</div>
+<div>
+<div class="text-[10px] font-bold text-outline uppercase tracking-widest font-label mb-1">Weekly Views</div>
+<div class="text-2xl font-extrabold text-on-surface font-headline">+24.8%</div>
+</div>
+</div>
+<div class="bg-surface-container-low/50 p-6 rounded-[1.5rem] flex items-center gap-6">
+<div class="h-14 w-14 rounded-full bg-white flex items-center justify-center shadow-sm text-secondary">
+<span class="material-symbols-outlined text-[28px]">update</span>
+</div>
+<div>
+<div class="text-[10px] font-bold text-outline uppercase tracking-widest font-label mb-1">Avg Refresh Rate</div>
+<div class="text-2xl font-extrabold text-on-surface font-headline">14.2 min</div>
+</div>
+</div>
+<div class="bg-surface-container-low/50 p-6 rounded-[1.5rem] flex items-center gap-6">
+<div class="h-14 w-14 rounded-full bg-white flex items-center justify-center shadow-sm text-tertiary">
+<span class="material-symbols-outlined text-[28px]">verified_user</span>
+</div>
+<div>
+<div class="text-[10px] font-bold text-outline uppercase tracking-widest font-label mb-1">Cited Accuracy</div>
+<div class="text-2xl font-extrabold text-on-surface font-headline">99.2%</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- BottomNavBar Mobile Only (Authority: JSON) -->
+<nav class="md:hidden fixed bottom-0 left-0 right-0 bg-white/70 backdrop-blur-xl border-none shadow-[0_-4px_20px_rgba(25,28,30,0.04)] flex justify-around py-3 z-[100]">
+<a class="flex flex-col items-center gap-1 text-outline" href="#">
+<span class="material-symbols-outlined">auto_stories</span>
+<span class="text-[10px] font-bold uppercase font-label">Feed</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+<span class="text-[10px] font-bold uppercase font-label">Archives</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-outline" href="#">
+<span class="material-symbols-outlined">category</span>
+<span class="text-[10px] font-bold uppercase font-label">Cats</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-outline" href="#">
+<span class="material-symbols-outlined">account_circle</span>
+<span class="text-[10px] font-bold uppercase font-label">Profile</span>
+</a>
+</nav>
+</body></html>
