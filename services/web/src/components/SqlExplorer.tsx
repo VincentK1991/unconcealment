@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -14,12 +14,20 @@ interface Props {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
+const SCHEMA_OVERVIEW_SQL = (schema: string) =>
+  `SELECT relname AS "table", n_live_tup AS rows\nFROM pg_stat_user_tables\nWHERE schemaname = '${schema}'\nORDER BY relname`;
+
 export default function SqlExplorer({ datasetId, schema }: Props) {
-  const [sql, setSql] = useState(`SELECT *\nFROM ${schema}.policy\nLIMIT 10`);
+  const [sql, setSql] = useState(() => SCHEMA_OVERVIEW_SQL(schema));
   const [results, setResults] = useState<SqlResults | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState<number | null>(null);
+
+  useEffect(() => {
+    runQuery();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function runQuery() {
     if (!sql.trim()) return;
