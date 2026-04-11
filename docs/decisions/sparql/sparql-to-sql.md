@@ -1,6 +1,6 @@
 # SPARQL-to-SQL Query Rewriting — Design & Discovery
 
-> **Status**: Design doc (Phase 3 — not yet implemented)
+> **Status**: Implemented for `insurance` dataset via Ontop-backed `/query/vkg/translate`; this document now includes both design rationale and operational reference.
 > **Related**: `docs/decisions/semantic-binding.md`, `ontology/insurance/bindings.ttl`
 
 ---
@@ -220,3 +220,11 @@ Covers date range filters, NULL checks, and optional outer joins.
 For the unconcealment project, the SPARQL-to-SQL rewriter will be implemented as a TypeScript module in `services/indexing/` (alongside `rdf-binding.ts`), invoked at LLM prompt-generation time to provide SQL context. It is **not** a general-purpose SPARQL endpoint proxy — it is a context builder that translates the user's semantic intent (SPARQL pattern) to the SQL dialect appropriate for each dataset's storage backend.
 
 The initial implementation (Phase 1) covers the most common benchmark question types. Phases 2–4 are tracked as future work.
+
+---
+
+## 9. Operational Reference
+
+Operational details for how the system currently works, how to onboard new SQL tables, and how schema changes propagate to ontology/mappings are maintained in:
+
+- `docs/decisions/sparql/sparql2sql-system-reference.md`

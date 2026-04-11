@@ -1,5 +1,8 @@
 package com.unconcealment.backend.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import io.minio.GetObjectArgs;
 import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
@@ -28,6 +31,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/document")
+@Tag(name = "Document", description = "MinIO-backed source document resolution and streaming endpoints.")
 public class DocumentController {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentController.class);
@@ -41,8 +45,11 @@ public class DocumentController {
     private static final String DEFAULT_PREFIX = "raw";
 
     @GetMapping("/resolve")
+    @Operation(summary = "Resolve dataset/documentKey to a concrete object and viewer URL")
     public ResponseEntity<Map<String, Object>> resolve(
+            @Parameter(description = "Dataset id from manifest.yaml", example = "economic-census")
             @RequestParam String dataset,
+            @Parameter(description = "Document key used by the indexing pipeline", example = "census-2025-report")
             @RequestParam String documentKey
     ) {
         try {
@@ -66,8 +73,11 @@ public class DocumentController {
     }
 
     @GetMapping("/raw")
+    @Operation(summary = "Stream raw document bytes from MinIO")
     public ResponseEntity<?> raw(
+            @Parameter(description = "Dataset id from manifest.yaml", example = "economic-census")
             @RequestParam String dataset,
+            @Parameter(description = "Document key used by the indexing pipeline", example = "census-2025-report")
             @RequestParam String documentKey
     ) {
         try {

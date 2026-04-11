@@ -1,0 +1,186 @@
+---
+export const prerender = false;
+
+import { existsSync, readFileSync } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+import BaseLayout from "../../layouts/BaseLayout.astro";
+
+type CsvRow = {
+  query: string;
+  sparql: string;
+  generatedRawSql: string;
+  generatedProjectedSql: string;
+  projectedApplied: string;
+  expectedSql: string;
+  generatedRawResult: string;
+  generatedProjectedResult: string;
+  expectedResult: string;
+};
+
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (ch === "\"") {
+        if (next === "\"") {
+          cell += "\"";
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cell += ch;
+      }
+      continue;
+    }
+
+    if (ch === "\"") {
+      inQuotes = true;
+      continue;
+    }
+    if (ch === ",") {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+    if (ch === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+      continue;
+    }
+    if (ch === "\r") {
+      continue;
+    }
+    cell += ch;
+  }
+
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const candidates = [
+  import.meta.env.BENCHMARK_CSV_PATH,
+  path.resolve(process.cwd(), "target/ontop-benchmark-output.csv"),
+  path.resolve(process.cwd(), "../../target/ontop-benchmark-output.csv"),
+  path.resolve(__dirname, "../../../../../target/ontop-benchmark-output.csv"),
+].filter(Boolean) as string[];
+
+const csvPath = candidates.find((p) => existsSync(p));
+let rows: CsvRow[] = [];
+let loadError = "";
+
+if (!csvPath) {
+  loadError = "CSV file not found. Expected: target/ontop-benchmark-output.csv";
+} else {
+  try {
+    const content = readFileSync(csvPath, "utf8");
+    const parsed = parseCsv(content);
+    const [, ...body] = parsed;
+    rows = body.map((r) => ({
+      query: r[0] ?? "",
+      sparql: r[1] ?? "",
+      generatedRawSql: r[2] ?? "",
+      generatedProjectedSql: r[3] ?? "",
+      projectedApplied: r[4] ?? "",
+      expectedSql: r[5] ?? "",
+      generatedRawResult: r[6] ?? "",
+      generatedProjectedResult: r[7] ?? "",
+      expectedResult: r[8] ?? "",
+    }));
+  } catch (e) {
+    loadError = e instanceof Error ? e.message : String(e);
+  }
+}
+---
+
+<BaseLayout title="SPARQL→SQL Benchmark CSV Viewer — unconcealment" width="full">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1rem; flex-wrap:wrap;">
+    <div>
+      <h1 style="font-family:'Manrope',sans-serif; font-size:1.75rem; font-weight:800; color:#191c1e; margin:0 0 0.25rem;">
+        SPARQL→SQL Benchmark CSV Viewer
+      </h1>
+      <p style="margin:0; color:#747688; font-family:'Inter',sans-serif; font-size:0.9rem;">
+        {rows.length} rows loaded
+      </p>
+      {csvPath && (
+        <p style="margin:0.35rem 0 0; color:#747688; font-family:'JetBrains Mono',monospace; font-size:0.75rem;">
+          {csvPath}
+        </p>
+      )}
+    </div>
+    <input
+      id="q"
+      placeholder="Filter by query text..."
+      style="width:min(28rem,100%); background:white; border:1px solid #e4e8f0; border-radius:0.5rem; padding:0.55rem 0.7rem; font-family:'Inter',sans-serif;"
+    />
+  </div>
+
+  {loadError ? (
+    <div style="background:#fff; border:1px solid #f3c7c7; border-radius:0.75rem; padding:1rem; color:#b42318;">
+      {loadError}
+    </div>
+  ) : (
+    <div style="background:#fff; border:1px solid #e9edf5; border-radius:0.75rem; overflow:auto;">
+      <table style="width:100%; border-collapse:collapse; min-width:1700px;">
+        <thead>
+          <tr style="background:#f8faff;">
+            <th style="text-align:left; padding:0.7rem; border-bottom:1px solid #e9edf5;">query</th>
+            <th style="text-align:left; padding:0.7rem; border-bottom:1px solid #e9edf5;">sparql</th>
+            <th style="text-align:left; padding:0.7rem; border-bottom:1px solid #e9edf5;">generated raw sql</th>
+            <th style="text-align:left; padding:0.7rem; border-bottom:1px solid #e9edf5;">generated projected sql</th>
+            <th style="text-align:left; padding:0.7rem; border-bottom:1px solid #e9edf5;">projected applied</th>
+            <th style="text-align:left; padding:0.7rem; border-bottom:1px solid #e9edf5;">expected sql</th>
+            <th style="text-align:left; padding:0.7rem; border-bottom:1px solid #e9edf5;">generated raw result</th>
+            <th style="text-align:left; padding:0.7rem; border-bottom:1px solid #e9edf5;">generated projected result</th>
+            <th style="text-align:left; padding:0.7rem; border-bottom:1px solid #e9edf5;">expected result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr data-query={r.query.toLowerCase()} style="border-bottom:1px solid #f2f5fa; vertical-align:top;">
+              <td style="padding:0.7rem; font-weight:600; color:#23272f; max-width:24rem;">{r.query}</td>
+              <td style="padding:0.7rem;"> <details><summary>view</summary><pre style="white-space:pre-wrap; margin-top:0.5rem;">{r.sparql}</pre></details> </td>
+              <td style="padding:0.7rem;"> <details><summary>view</summary><pre style="white-space:pre-wrap; margin-top:0.5rem;">{r.generatedRawSql}</pre></details> </td>
+              <td style="padding:0.7rem;"> <details><summary>view</summary><pre style="white-space:pre-wrap; margin-top:0.5rem;">{r.generatedProjectedSql}</pre></details> </td>
+              <td style="padding:0.7rem; font-family:'JetBrains Mono',monospace;">{r.projectedApplied}</td>
+              <td style="padding:0.7rem;"> <details><summary>view</summary><pre style="white-space:pre-wrap; margin-top:0.5rem;">{r.expectedSql}</pre></details> </td>
+              <td style="padding:0.7rem;"> <details><summary>view</summary><pre style="white-space:pre-wrap; margin-top:0.5rem;">{r.generatedRawResult}</pre></details> </td>
+              <td style="padding:0.7rem;"> <details><summary>view</summary><pre style="white-space:pre-wrap; margin-top:0.5rem;">{r.generatedProjectedResult}</pre></details> </td>
+              <td style="padding:0.7rem;"> <details><summary>view</summary><pre style="white-space:pre-wrap; margin-top:0.5rem;">{r.expectedResult}</pre></details> </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+
+  <script>
+    const input = document.getElementById("q");
+    const rows = Array.from(document.querySelectorAll("tbody tr"));
+    if (input) {
+      input.addEventListener("input", () => {
+        const q = (input.value || "").toLowerCase().trim();
+        for (const row of rows) {
+          const hay = (row.getAttribute("data-query") || "");
+          row.style.display = !q || hay.includes(q) ? "" : "none";
+        }
+      });
+    }
+  </script>
+</BaseLayout>

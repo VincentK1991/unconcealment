@@ -1,6 +1,8 @@
 package com.unconcealment.backend.controller;
 
 import com.unconcealment.backend.model.DatasetManifest;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.apache.jena.query.QueryExecution;
 import org.apache.jena.rdfconnection.RDFConnection;
 import org.slf4j.Logger;
@@ -20,6 +22,7 @@ import java.util.*;
  */
 @RestController
 @RequestMapping("/health")
+@Tag(name = "Health", description = "Runtime liveness, readiness, and metric summary endpoints.")
 public class HealthController {
 
     private static final Logger log = LoggerFactory.getLogger(HealthController.class);
@@ -37,6 +40,7 @@ public class HealthController {
      * JVM heap usage, uptime. Always returns 200 if the JVM is alive.
      */
     @GetMapping("/live")
+    @Operation(summary = "JVM liveness check with heap and uptime metrics")
     public Map<String, Object> live() {
         MemoryMXBean mem = ManagementFactory.getMemoryMXBean();
         long heapUsed = mem.getHeapMemoryUsage().getUsed();
@@ -55,6 +59,7 @@ public class HealthController {
      * Returns 200 only when all datasets are reachable.
      */
     @GetMapping("/ready")
+    @Operation(summary = "Readiness check for all configured datasets against Fuseki")
     public Map<String, Object> ready() {
         List<Map<String, Object>> datasetStatus = new ArrayList<>();
         boolean allReady = true;
@@ -81,6 +86,7 @@ public class HealthController {
      * and Micrometer gauge registration.
      */
     @GetMapping("/metrics")
+    @Operation(summary = "Triple-count metrics per dataset")
     public Map<String, Object> metrics() {
         List<Map<String, Object>> datasetMetrics = new ArrayList<>();
 

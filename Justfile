@@ -32,10 +32,14 @@ infra-logs:
 
 # ─── Backend ──────────────────────────────────────────────────────────────────
 
-# Start the Java backend (loads ontologies into Fuseki at startup)
+# Start the Java backend with hot reload for local development.
+# - Uses Spring Boot DevTools restart on classpath changes.
+# - addResources=true picks up resource changes without full restart.
 # Runs from repo root so ontology/manifest.yaml resolves correctly.
 backend:
     cd {{BACKEND_DIR}} && mvn spring-boot:run \
+        -Dspring-boot.run.addResources=true \
+        -Dspring-boot.run.fork=true \
         -Dspring-boot.run.jvmArguments="-Xmx1g" \
         -Dspring-boot.run.workingDirectory="{{justfile_directory()}}"
 

@@ -28,3 +28,11 @@ logging:
   level:
     com.unconcealment: DEBUG
     org.apache.jena: INFO
+
+springdoc:
+  swagger-ui:
+    path: /docs
+    operations-sorter: method
+    tags-sorter: alpha
+  api-docs:
+    path: /v3/api-docs

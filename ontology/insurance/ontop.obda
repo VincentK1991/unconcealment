@@ -1,0 +1,95 @@
+[PrefixDeclaration]
+:		http://localhost/insurance/
+in:		http://data.world/schema/insurance/
+rdf:	http://www.w3.org/1999/02/22-rdf-syntax-ns#
+rdfs:	http://www.w3.org/2000/01/rdf-schema#
+owl:	http://www.w3.org/2002/07/owl#
+xsd:	http://www.w3.org/2001/XMLSchema#
+
+[MappingDeclaration] @collection [[
+
+mappingId	Policy
+target		:Policy/{policy_identifier} a in:Policy ; in:policyNumber {policy_number}^^xsd:string ; in:policyEffectiveDate {effective_date}^^xsd:dateTime ; in:policyExpirationDate {expiration_date}^^xsd:dateTime .
+source		SELECT policy_identifier, policy_number, effective_date, expiration_date FROM acme_insurance.policy
+
+mappingId	Claim
+target		:Claim/{claim_identifier} a in:Claim ; in:claimNumber {company_claim_number}^^xsd:string ; in:claimOpenDate {claim_open_date}^^xsd:dateTime ; in:claimCloseDate {claim_close_date}^^xsd:dateTime .
+source		SELECT claim_identifier, company_claim_number, claim_open_date, claim_close_date FROM acme_insurance.claim
+
+mappingId	Catastrophe
+target		:Catastrophe/{catastrophe_identifier} a in:Catastrophe ; in:catastropheName {catastrophe_name}^^xsd:string .
+source		SELECT catastrophe_identifier, catastrophe_name FROM acme_insurance.catastrophe
+
+mappingId	PolicyCoverageDetail
+target		:PolicyCoverageDetail/{policy_coverage_detail_identifier} a in:PolicyCoverageDetail ; in:policyCoverageEffectiveDate {effective_date}^^xsd:dateTime ; in:policyCoverageExpirationDate {expiration_date}^^xsd:dateTime .
+source		SELECT policy_coverage_detail_identifier, effective_date, expiration_date FROM acme_insurance.policy_coverage_detail
+
+mappingId	LossPayment
+target		:LossPayment/{claim_amount_identifier} a in:LossPayment ; in:lossPaymentAmount {loss_payment_amount}^^xsd:decimal .
+source		SELECT lp.claim_amount_identifier, ca.claim_amount AS loss_payment_amount FROM acme_insurance.loss_payment lp JOIN acme_insurance.claim_amount ca ON ca.claim_amount_identifier = lp.claim_amount_identifier
+
+mappingId	LossReserve
+target		:LossReserve/{claim_amount_identifier} a in:LossReserve ; in:lossReserveAmount {loss_reserve_amount}^^xsd:decimal .
+source		SELECT lr.claim_amount_identifier, ca.claim_amount AS loss_reserve_amount FROM acme_insurance.loss_reserve lr JOIN acme_insurance.claim_amount ca ON ca.claim_amount_identifier = lr.claim_amount_identifier
+
+mappingId	ExpensePayment
+target		:ExpensePayment/{claim_amount_identifier} a in:ExpensePayment ; in:expensePaymentAmount {expense_payment_amount}^^xsd:decimal .
+source		SELECT ep.claim_amount_identifier, ca.claim_amount AS expense_payment_amount FROM acme_insurance.expense_payment ep JOIN acme_insurance.claim_amount ca ON ca.claim_amount_identifier = ep.claim_amount_identifier
+
+mappingId	ExpenseReserve
+target		:ExpenseReserve/{claim_amount_identifier} a in:ExpenseReserve ; in:expenseReserveAmount {expense_reserve_amount}^^xsd:decimal .
+source		SELECT er.claim_amount_identifier, ca.claim_amount AS expense_reserve_amount FROM acme_insurance.expense_reserve er JOIN acme_insurance.claim_amount ca ON ca.claim_amount_identifier = er.claim_amount_identifier
+
+mappingId	Premium
+target		:Premium/{policy_amount_identifier} a in:Premium ; in:premiumAmount {premium_amount}^^xsd:decimal .
+source		SELECT pr.policy_amount_identifier, pa.policy_amount AS premium_amount FROM acme_insurance.premium pr JOIN acme_insurance.policy_amount pa ON pa.policy_amount_identifier = pr.policy_amount_identifier
+
+mappingId	Agent
+target		:Agent/{agent_id} a in:Agent ; in:agentId {agent_id}^^xsd:string .
+source		SELECT CAST(party_identifier AS VARCHAR) AS agent_id, agreement_identifier AS policy_identifier FROM acme_insurance.agreement_party_role WHERE party_role_code = 'AG'
+
+mappingId	PolicyHolder
+target		:PolicyHolder/{policy_holder_id} a in:PolicyHolder ; in:policyHolderId {policy_holder_id}^^xsd:string .
+source		SELECT CAST(party_identifier AS VARCHAR) AS policy_holder_id, agreement_identifier AS policy_identifier FROM acme_insurance.agreement_party_role WHERE party_role_code = 'PH'
+
+mappingId	Policy-soldByAgent
+target		:Policy/{pid} in:soldByAgent :Agent/{agent_id} .
+source		SELECT p.policy_identifier AS pid, CAST(apr.party_identifier AS VARCHAR) AS agent_id FROM acme_insurance.policy p JOIN acme_insurance.agreement_party_role apr ON apr.agreement_identifier = p.policy_identifier WHERE apr.party_role_code = 'AG'
+
+mappingId	Policy-hasPolicyHolder
+target		:Policy/{pid} in:hasPolicyHolder :PolicyHolder/{policy_holder_id} .
+source		SELECT p.policy_identifier AS pid, CAST(apr.party_identifier AS VARCHAR) AS policy_holder_id FROM acme_insurance.policy p JOIN acme_insurance.agreement_party_role apr ON apr.agreement_identifier = p.policy_identifier WHERE apr.party_role_code = 'PH'
+
+mappingId	PolicyCoverageDetail-hasPolicy
+target		:PolicyCoverageDetail/{pcd_id} in:hasPolicy :Policy/{pid} .
+source		SELECT policy_coverage_detail_identifier AS pcd_id, policy_identifier AS pid FROM acme_insurance.policy_coverage_detail
+
+mappingId	PolicyCoverageDetail-hasPremiumAmount
+target		:PolicyCoverageDetail/{pcd_id} in:hasPremiumAmount :Premium/{prem_id} .
+source		SELECT pa.policy_coverage_detail_identifier AS pcd_id, pr.policy_amount_identifier AS prem_id FROM acme_insurance.premium pr JOIN acme_insurance.policy_amount pa ON pa.policy_amount_identifier = pr.policy_amount_identifier
+
+mappingId	Claim-against
+target		:Claim/{cid} in:against :PolicyCoverageDetail/{pcd_id} .
+source		SELECT claim_identifier AS cid, policy_coverage_detail_identifier AS pcd_id FROM acme_insurance.claim_coverage
+
+mappingId	Claim-hasCatastrophe
+target		:Claim/{cid} in:hasCatastrophe :Catastrophe/{cat_id} .
+source		SELECT claim_identifier AS cid, catastrophe_identifier AS cat_id FROM acme_insurance.claim WHERE catastrophe_identifier IS NOT NULL
+
+mappingId	Claim-hasLossPayment
+target		:Claim/{cid} in:hasLossPayment :LossPayment/{lp_id} .
+source		SELECT ca.claim_identifier AS cid, lp.claim_amount_identifier AS lp_id FROM acme_insurance.loss_payment lp JOIN acme_insurance.claim_amount ca ON ca.claim_amount_identifier = lp.claim_amount_identifier
+
+mappingId	Claim-hasLossReserve
+target		:Claim/{cid} in:hasLossReserve :LossReserve/{lr_id} .
+source		SELECT ca.claim_identifier AS cid, lr.claim_amount_identifier AS lr_id FROM acme_insurance.loss_reserve lr JOIN acme_insurance.claim_amount ca ON ca.claim_amount_identifier = lr.claim_amount_identifier
+
+mappingId	Claim-hasExpensePayment
+target		:Claim/{cid} in:hasExpensePayment :ExpensePayment/{ep_id} .
+source		SELECT ca.claim_identifier AS cid, ep.claim_amount_identifier AS ep_id FROM acme_insurance.expense_payment ep JOIN acme_insurance.claim_amount ca ON ca.claim_amount_identifier = ep.claim_amount_identifier
+
+mappingId	Claim-hasExpenseReserve
+target		:Claim/{cid} in:hasExpenseReserve :ExpenseReserve/{er_id} .
+source		SELECT ca.claim_identifier AS cid, er.claim_amount_identifier AS er_id FROM acme_insurance.expense_reserve er JOIN acme_insurance.claim_amount ca ON ca.claim_amount_identifier = er.claim_amount_identifier
+
+]]

@@ -4,6 +4,10 @@ import com.unconcealment.backend.model.DatasetManifest;
 import com.unconcealment.backend.model.DatasetManifest.DatasetConfig;
 import com.unconcealment.backend.model.DatasetManifest.NamedGraphs;
 import com.unconcealment.backend.service.MaterializationService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.apache.jena.query.Query;
 import org.apache.jena.query.QueryExecution;
 import org.apache.jena.query.QueryFactory;
@@ -44,6 +48,7 @@ import java.util.UUID;
  */
 @RestController
 @RequestMapping("/ingest")
+@Tag(name = "Ingest", description = "Entity assertion and normalization materialization endpoints.")
 public class IngestController {
 
     private static final Logger log = LoggerFactory.getLogger(IngestController.class);
@@ -67,32 +72,50 @@ public class IngestController {
     // -------------------------------------------------------------------------
 
     public static class AttributeDto {
+        @Schema(description = "Predicate local name or full IRI", example = "hasPolicyNumber")
         public String predicate;
+        @Schema(description = "Literal value for this attribute", example = "POL-12345")
         public String value;
     }
 
     public static class EntityDto {
+        @Schema(description = "Human-readable entity label", example = "Acme Insurance")
         public String label;
+        @Schema(description = "Entity type local name or full IRI", example = "Insurer")
         public String type;
+        @Schema(description = "Optional free-text description", example = "Regional health insurer in NY")
         public String description;
+        @Schema(description = "Optional scalar attributes for this entity")
         public List<AttributeDto> attributes;
     }
 
     public static class RelationshipDto {
+        @Schema(description = "Index of subject entity in entities[]", example = "0")
         public int subjectId;
+        @Schema(description = "Predicate local name or full IRI", example = "offersPlan")
         public String predicate;
+        @Schema(description = "Index of object entity in entities[] when objectIsLiteral=false", example = "1")
         public Integer objectId;       // null when objectIsLiteral is true
+        @Schema(description = "Object literal value when objectIsLiteral=true", example = "Gold PPO 500")
         public String objectLiteral;   // null when objectIsLiteral is false
+        @Schema(description = "True when objectLiteral should be used as object", example = "false")
         public boolean objectIsLiteral;
+        @Schema(description = "Extraction confidence score [0.0, 1.0]", example = "0.92")
         public double confidence;
     }
 
     public static class AssertionRequest {
+        @Schema(description = "Source document IRI", example = "urn:doc:acme/2026-q1-report")
         public String documentIri;
+        @Schema(description = "Indexing run id for traceability", example = "run-2026-04-10-001")
         public String indexingRunId;
+        @Schema(description = "Extraction method identifier", example = "llm-gpt5")
         public String extractionMethod;
+        @Schema(description = "Extraction timestamp in ISO-8601 format", example = "2026-04-10T12:00:00Z")
         public String extractedAt;
+        @Schema(description = "Entities extracted from the document")
         public List<EntityDto> entities;
+        @Schema(description = "Relationships extracted from the document")
         public List<RelationshipDto> relationships;
     }
 
@@ -113,7 +136,9 @@ public class IngestController {
      * Ontology IRIs are resolved by local name lookup against the TBox named graph.
      */
     @PostMapping("/assertions")
+    @Operation(summary = "Assert extracted entities and relationships as RDF triples")
     public ResponseEntity<String> assertEntities(
+            @Parameter(description = "Dataset id from manifest.yaml", example = "economic-census")
             @RequestParam String dataset,
             @RequestBody AssertionRequest request) {
 
@@ -285,7 +310,10 @@ public class IngestController {
      * Safe to call multiple times — abox:inferred is fully replaced on each invocation.
      */
     @PostMapping("/normalize")
-    public ResponseEntity<String> normalize(@RequestParam String dataset) {
+    @Operation(summary = "Materialize owl:sameAs deductions into inferred graph")
+    public ResponseEntity<String> normalize(
+            @Parameter(description = "Dataset id from manifest.yaml", example = "economic-census")
+            @RequestParam String dataset) {
         DatasetConfig ds = resolveDataset(dataset);
         if (ds == null) return datasetNotFound(dataset);
 
