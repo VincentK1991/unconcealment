@@ -30,63 +30,83 @@ import org.apache.jena.sparql.syntax.syntaxtransform.ElementTransformCopyBase;
 import org.apache.jena.sparql.syntax.syntaxtransform.ElementTransformer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * Virtual Knowledge Graph service using Ontop.
  *
- * Translates SPARQL SELECT queries to PostgreSQL SQL via the OBDA mapping defined in
+ * Translates SPARQL SELECT queries to SQL via the OBDA mapping defined in
  * ontology/{datasetId}/ontop.obda, without executing the SQL.
  *
- * The caller receives the SQL string and runs it against postgres-kg themselves.
+ * Domain-agnostic: JDBC settings are read from ontop.properties alongside
+ * each dataset's ontop.obda. Optional ontop-table-map.properties enables
+ * post-processing SQL rewrites (e.g. PostgreSQL table refs → BigQuery names).
  *
- * One Ontop query engine is created per postgres-enabled dataset at startup
- * and held for the lifetime of the application.
+ * A dataset is Ontop-enabled if and only if both files exist:
+ *   ontology/{datasetId}/ontop.obda
+ *   ontology/{datasetId}/ontop.properties
+ *
+ * One Ontop query engine is created per enabled dataset at startup and held
+ * for the lifetime of the application.
  */
 @Service
 public class OntopVkgService {
 
     private static final Logger log = LoggerFactory.getLogger(OntopVkgService.class);
-    private static final Pattern BARE_DATE_LITERAL = Pattern.compile("([\"'])(\\d{4}-\\d{2}-\\d{2})\\1");
-    private static final Pattern RDF_PREFIX_DECL = Pattern.compile("(?i)\\bprefix\\s+rdf\\s*:");
-    private static final Pattern XSD_PREFIX_DECL = Pattern.compile("(?i)\\bprefix\\s+xsd\\s*:");
 
-    /** Maps dataset id → Ontop query engine (one per postgres-enabled dataset). */
+    private static final Pattern BARE_DATE_LITERAL = Pattern.compile("([\"'])(\\d{4}-\\d{2}-\\d{2})\\1");
+    private static final Pattern RDF_PREFIX_DECL   = Pattern.compile("(?i)\\bprefix\\s+rdf\\s*:");
+    private static final Pattern XSD_PREFIX_DECL   = Pattern.compile("(?i)\\bprefix\\s+xsd\\s*:");
+    /** Matches double-quoted SQL identifiers: "foo" — used for requoting to backtick style. */
+    private static final Pattern DOUBLE_QUOTED_ID  = Pattern.compile("\"([^\"]+)\"");
+    /** Property key in ontop-table-map.properties that controls identifier requoting. */
+    private static final String PROP_ID_QUOTE      = "ontop.sql.rewrite.identifier.quote";
+
+    /** Maps dataset id → Ontop query engine. */
     private final Map<String, OntopQueryEngine> engines = new HashMap<>();
+    /**
+     * Maps dataset id → ordered table-name replacement map.
+     * Populated from ontop-table-map.properties when present.
+     * Keys are exact strings to replace; values are their replacements.
+     * Ordered (LinkedHashMap) so longer/more-specific keys are applied first
+     * (file is read in declaration order).
+     */
+    private final Map<String, Map<String, String>> tableRewriteMaps = new HashMap<>();
+    /**
+     * Maps dataset id → identifier quoting mode.
+     * "backtick" → convert remaining "id" tokens to `id` after table rewrites.
+     */
+    private final Map<String, String> identifierQuoteModes = new HashMap<>();
 
     private final DatasetManifest manifest;
-    private final String jdbcUrl;
-    private final String jdbcUser;
-    private final String jdbcPassword;
+
     public record TranslationResult(String sql, boolean projectedApplied) {}
 
-    public OntopVkgService(
-            DatasetManifest manifest,
-            @Value("${app.postgres.url}") String jdbcUrl,
-            @Value("${app.postgres.username}") String jdbcUser,
-            @Value("${app.postgres.password}") String jdbcPassword) {
+    public OntopVkgService(DatasetManifest manifest) {
         this.manifest = manifest;
-        this.jdbcUrl = jdbcUrl;
-        this.jdbcUser = jdbcUser;
-        this.jdbcPassword = jdbcPassword;
     }
 
     @PostConstruct
     public void init() {
         for (DatasetConfig ds : manifest.getDatasets()) {
-            if (ds.getPostgres() != null && ds.getPostgres().isEnabled()) {
+            File ontologyFile = new File(ds.getOntologyPath());
+            File obdaFile     = new File(ontologyFile.getParent(), "ontop.obda");
+            File propsFile    = new File(ontologyFile.getParent(), "ontop.properties");
+            if (obdaFile.exists() && propsFile.exists()) {
                 try {
-                    initEngine(ds);
+                    initEngine(ds, ontologyFile, obdaFile, propsFile);
                     log.info("[ontop] Initialized VKG engine for dataset '{}'", ds.getId());
                 } catch (Exception e) {
                     log.error("[ontop] Failed to initialize VKG for dataset '{}': {}",
@@ -108,16 +128,13 @@ public class OntopVkgService {
     }
 
     /**
-     * Translates a SPARQL SELECT query to a PostgreSQL SQL string via Ontop reformulation.
+     * Translates a SPARQL SELECT query to SQL via Ontop reformulation.
      * Strips any SERVICE :mapped { } wrapper from benchmark queries before translation.
+     * Applies table-name and identifier rewrites from ontop-table-map.properties if present.
      *
-     * @param datasetId dataset ID (must be postgres-enabled, e.g. "insurance")
+     * @param datasetId dataset ID (must have ontop.obda + ontop.properties)
      * @param sparqlRaw raw SPARQL string (may contain SERVICE wrapper)
-     * @return SQL string ready to execute against the configured schema
-     * @throws IllegalArgumentException if dataset not found or not VKG-enabled
-     * @throws OntopConnectionException if Ontop connection fails
-     * @throws OntopReformulationException if SPARQL cannot be reformulated to SQL
-     * @throws OntopInvalidKGQueryException if the SPARQL is syntactically invalid
+     * @return SQL string ready to run against the dataset's target database
      */
     public String translateToSql(String datasetId, String sparqlRaw)
             throws OntopConnectionException, OntopReformulationException, OntopInvalidKGQueryException {
@@ -133,7 +150,7 @@ public class OntopVkgService {
         if (engine == null) {
             throw new IllegalArgumentException(
                 "No VKG engine for dataset '" + datasetId + "'. " +
-                "Ensure postgres.enabled=true in manifest.yaml and that ontop.obda exists."
+                "Ensure ontop.obda and ontop.properties exist in the dataset's ontology folder."
             );
         }
         String sparql = normalizeSparql(stripServiceWrapper(sparqlRaw));
@@ -148,9 +165,9 @@ public class OntopVkgService {
             TranslationResult translation = projectedOutput
                 ? wrapProjectedSql(executableQuery, nativeNode)
                 : new TranslationResult(nativeNode.getNativeQueryString(), false);
-            String sql = translation.sql();
+            String sql = applyTableRewrite(translation.sql(), datasetId);
             log.debug("[ontop][{}] Produced SQL:\n{}", datasetId, sql);
-            return translation;
+            return new TranslationResult(sql, translation.projectedApplied());
         } catch (OntopConnectionException | OntopReformulationException | OntopInvalidKGQueryException e) {
             throw e;
         } catch (Exception e) {
@@ -167,46 +184,113 @@ public class OntopVkgService {
     // Private helpers
     // -------------------------------------------------------------------------
 
-    private void initEngine(DatasetConfig ds) throws OBDASpecificationException, OntopConnectionException {
-        File ontologyFile = new File(ds.getOntologyPath());
-        File obdaFile = resolveObdaFile(ds);
+    private void initEngine(DatasetConfig ds, File ontologyFile, File obdaFile, File propsFile)
+            throws OBDASpecificationException, OntopConnectionException, IOException {
+        Properties p = loadOntopProperties(propsFile);
 
         OntopSQLOWLAPIConfiguration config = OntopSQLOWLAPIConfiguration.defaultBuilder()
             .ontologyFile(ontologyFile.getAbsolutePath())
             .nativeOntopMappingFile(obdaFile.getAbsolutePath())
-            .jdbcUrl(jdbcUrl)
-            .jdbcUser(jdbcUser)
-            .jdbcPassword(jdbcPassword)
-            .jdbcDriver("org.postgresql.Driver")
+            .jdbcUrl(p.getProperty("ontop.jdbc.url"))
+            .jdbcUser(p.getProperty("ontop.jdbc.user"))
+            .jdbcPassword(p.getProperty("ontop.jdbc.password"))
+            .jdbcDriver(p.getProperty("ontop.jdbc.driver"))
             .build();
 
         OntopQueryEngine engine = config.loadQueryEngine();
         engine.connect();
         engines.put(ds.getId(), engine);
+
+        // Load optional table-name rewrite map
+        File tableMapFile = new File(obdaFile.getParent(), "ontop-table-map.properties");
+        if (tableMapFile.exists()) {
+            loadTableRewriteMap(ds.getId(), tableMapFile);
+            log.info("[ontop] Loaded table-rewrite map for dataset '{}'", ds.getId());
+        }
     }
 
     /**
-     * Resolves the OBDA mapping file for a dataset.
-     * Looks for ontop.obda alongside the ontology file.
-     * e.g. ontologyPath = "ontology/insurance/core.ttl"
-     *      → obda path  = "ontology/insurance/ontop.obda"
+     * Loads ontop.properties and resolves ${ENV_VAR:default} tokens using
+     * System.getenv() with the declared fallback value.
      */
-    private File resolveObdaFile(DatasetConfig ds) {
-        File ontologyFile = new File(ds.getOntologyPath());
-        File obdaFile = new File(ontologyFile.getParent(), "ontop.obda");
-        if (!obdaFile.exists()) {
-            throw new IllegalStateException(
-                "Ontop OBDA mapping not found at: " + obdaFile.getAbsolutePath() +
-                ". Create ontology/" + ds.getId() + "/ontop.obda to enable VKG."
-            );
+    private Properties loadOntopProperties(File propsFile) throws IOException {
+        Properties raw = new Properties();
+        try (FileInputStream fis = new FileInputStream(propsFile)) {
+            raw.load(fis);
         }
-        return obdaFile;
+        Pattern envToken = Pattern.compile("\\$\\{([^:}]+)(?::([^}]*))?\\}");
+        Properties resolved = new Properties();
+        for (String key : raw.stringPropertyNames()) {
+            String value = raw.getProperty(key);
+            Matcher m = envToken.matcher(value);
+            StringBuffer sb = new StringBuffer();
+            while (m.find()) {
+                String envVar     = m.group(1);
+                String defaultVal = m.group(2) != null ? m.group(2) : "";
+                String envValue   = System.getenv(envVar);
+                m.appendReplacement(sb, Matcher.quoteReplacement(envValue != null ? envValue : defaultVal));
+            }
+            m.appendTail(sb);
+            resolved.setProperty(key, sb.toString());
+        }
+        return resolved;
+    }
+
+    /**
+     * Loads ontop-table-map.properties into an ordered replacement map.
+     * Lines whose keys start with a double-quote are table-name rewrites.
+     * The special key ontop.sql.rewrite.identifier.quote controls requoting.
+     */
+    private void loadTableRewriteMap(String datasetId, File tableMapFile) throws IOException {
+        // Use LinkedHashMap to preserve declaration order (more-specific keys first)
+        Map<String, String> rewrites = new LinkedHashMap<>();
+        Properties raw = new Properties() {
+            // Override to preserve insertion order via LinkedHashMap backing
+            private final LinkedHashMap<Object, Object> map = new LinkedHashMap<>();
+            @Override public synchronized Object put(Object key, Object value) { return map.put(key, value); }
+            @Override public String getProperty(String key) { return (String) map.get(key); }
+            @Override public java.util.Set<String> stringPropertyNames() { return map.keySet().stream().map(Object::toString).collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new)); }
+        };
+        try (FileInputStream fis = new FileInputStream(tableMapFile)) {
+            raw.load(fis);
+        }
+        for (String key : raw.stringPropertyNames()) {
+            String value = raw.getProperty(key);
+            if (PROP_ID_QUOTE.equals(key)) {
+                identifierQuoteModes.put(datasetId, value);
+            } else {
+                rewrites.put(key, value);
+            }
+        }
+        if (!rewrites.isEmpty()) {
+            tableRewriteMaps.put(datasetId, rewrites);
+        }
+    }
+
+    /**
+     * Applies table-name and identifier rewrites from ontop-table-map.properties.
+     * 1. Replaces every key in the rewrite map with its corresponding value.
+     * 2. If identifier quote mode is "backtick", converts remaining "id" tokens to `id`.
+     * No domain-specific logic; all rules come from the metadata file.
+     */
+    private String applyTableRewrite(String sql, String datasetId) {
+        Map<String, String> rewrites = tableRewriteMaps.get(datasetId);
+        if (rewrites == null || rewrites.isEmpty()) {
+            return sql;
+        }
+        String result = sql;
+        for (Map.Entry<String, String> entry : rewrites.entrySet()) {
+            result = result.replace(entry.getKey(), entry.getValue());
+        }
+        String quoteMode = identifierQuoteModes.get(datasetId);
+        if ("backtick".equals(quoteMode)) {
+            result = DOUBLE_QUOTED_ID.matcher(result).replaceAll("`$1`");
+        }
+        return result;
     }
 
     /**
      * Walks the IQ tree to find the NativeNode and extract the SQL string.
-     * After full reformulation, the tree root is typically a NativeNode (leaf)
-     * or has a NativeNode as a descendant.
      */
     private NativeNode extractNativeNode(IQ executableQuery) {
         NativeNode nativeNode = findNativeNode(executableQuery.getTree());
@@ -305,10 +389,6 @@ public class OntopVkgService {
     /**
      * Strips SERVICE :mapped { ... } or SERVICE ds-xxx:mapped { ... } wrappers
      * from benchmark SPARQL queries using Jena ARQ's ElementTransformer.
-     *
-     * Example:
-     *   WHERE { SERVICE :mapped { ?p a in:Policy } }
-     *   →  WHERE { ?p a in:Policy }
      */
     private String stripServiceWrapper(String sparql) {
         try {
@@ -333,10 +413,6 @@ public class OntopVkgService {
         }
     }
 
-    /**
-     * Some benchmark queries use rdf:type without declaring the rdf prefix.
-     * Add it on the fly so Jena can parse and we can strip SERVICE wrappers.
-     */
     private String ensureRdfPrefix(String sparql) {
         String lower = sparql.toLowerCase();
         if (lower.contains("rdf:") && !RDF_PREFIX_DECL.matcher(sparql).find()) {
@@ -347,7 +423,7 @@ public class OntopVkgService {
 
     /**
      * Normalizes benchmark SPARQL quirks:
-     * 1) bare 'YYYY-MM-DD' literals used in FILTER comparisons become xsd:dateTime literals.
+     * 1) bare 'YYYY-MM-DD' literals become xsd:dateTime literals.
      * 2) xsd prefix is ensured when such typed literals are injected.
      */
     private String normalizeSparql(String sparql) {

@@ -474,3 +474,371 @@ ex:cbsaCode
     rdfs:range  xsd:string ;
     rdfs:label "CBSA code" ;
     rdfs:comment "OMB Core-Based Statistical Area numeric code (e.g. '33460' for Minneapolis-St. Paul MSA)." .
+
+# ============================================================
+# ACS Socioeconomic Datatype Properties
+# Source: census_bureau_acs.county_*yr / state_*yr
+# Domain: ex:GeographicArea (county or state level)
+# ============================================================
+
+ex:totalPop
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "total population" ;
+    rdfs:comment "Total population count (ACS estimate)." .
+
+ex:medianIncome
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "median household income" ;
+    rdfs:comment "Median household income, inflation-adjusted dollars (ACS)." .
+
+ex:incomePerCapita
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "income per capita" ;
+    rdfs:comment "Per capita income, dollars (ACS)." .
+
+ex:povertyCount
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "poverty population count" ;
+    rdfs:comment "Population count below the federal poverty level (ACS)." .
+
+ex:unemployedPop
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "unemployed population" ;
+    rdfs:comment "Unemployed population count (ACS)." .
+
+ex:giniIndex
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "Gini index" ;
+    rdfs:comment "Gini coefficient of income inequality [0–1]. Higher = more unequal (ACS)." .
+
+ex:rentBurdenPercent
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "rent burden percent" ;
+    rdfs:comment "Median gross rent as percentage of household income (ACS)." .
+
+ex:medianRent
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "median rent" ;
+    rdfs:comment "Median gross rent, dollars per month (ACS)." .
+
+ex:medianHomeValue
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "median home value" ;
+    rdfs:comment "Median value of owner-occupied housing units, dollars (ACS)." .
+
+ex:medianAge
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "median age" ;
+    rdfs:comment "Median age of population (ACS)." .
+
+ex:whitePop
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "white non-Hispanic population" ;
+    rdfs:comment "White non-Hispanic population count (ACS)." .
+
+ex:blackPop
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "Black/African American population" ;
+    rdfs:comment "Black or African American population count (ACS)." .
+
+ex:hispanicPop
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "Hispanic/Latino population" ;
+    rdfs:comment "Hispanic or Latino population count (ACS)." .
+
+ex:asianPop
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "Asian population" ;
+    rdfs:comment "Asian population count (ACS)." .
+
+ex:collegeDegreePopulation
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "college degree population (25–64)" ;
+    rdfs:comment "Population aged 25–64 with a bachelor's degree or higher (ACS)." .
+
+ex:lessHighSchoolPopulation
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "less than high school population" ;
+    rdfs:comment "Population 25+ without a high school diploma (ACS)." .
+
+ex:employedManufacturing
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "employed in manufacturing" ;
+    rdfs:comment "Workers employed in manufacturing (ACS)." .
+
+ex:employedEducationHealth
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "employed in education/health/social" ;
+    rdfs:comment "Workers employed in education, health, and social services (ACS)." .
+
+ex:commutersPublicTransit
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "commuters by public transit" ;
+    rdfs:comment "Workers who commute by public transportation (ACS)." .
+
+ex:workedAtHome
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:GeographicArea ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "worked at home" ;
+    rdfs:comment "Workers who worked from home (ACS)." .
+
+# ============================================================
+# Opportunity Atlas Mobility & Structural Properties
+# Source: census_opportunity_atlas.tract_outcomes / tract_covariates
+# Domain: ex:CensusTract
+# ============================================================
+
+ex:upwardMobilityP25
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "upward mobility index (p25, pooled)" ;
+    rdfs:comment "Mean family income rank at age 35 for ALL children whose parents were at the 25th income percentile. Primary Opportunity Atlas upward mobility metric (kfr_pooled_pooled_p25)." .
+
+ex:upwardMobilityBlackP25
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "upward mobility index (p25, Black)" ;
+    rdfs:comment "Mean family income rank for Black children from p25 families (kfr_black_pooled_p25)." .
+
+ex:upwardMobilityWhiteP25
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "upward mobility index (p25, white)" ;
+    rdfs:comment "Mean family income rank for white children from p25 families (kfr_white_pooled_p25)." .
+
+ex:upwardMobilityHispanicP25
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "upward mobility index (p25, Hispanic)" ;
+    rdfs:comment "Mean family income rank for Hispanic children from p25 families (kfr_hisp_pooled_p25)." .
+
+ex:incarcerationRate
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "incarceration rate (pooled)" ;
+    rdfs:comment "Fraction of all children incarcerated on April 1, 2010 (jail_pooled_pooled_mean)." .
+
+ex:incarcerationRateBlackMale
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "incarceration rate (Black male)" ;
+    rdfs:comment "Fraction of Black males incarcerated — key racial disparity metric (jail_black_male_mean)." .
+
+ex:marriageRateFemale
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "marriage rate (female)" ;
+    rdfs:comment "Fraction of women who are married in 2015 (married_pooled_female_mean)." .
+
+ex:employmentRate
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "employment rate" ;
+    rdfs:comment "Fraction of children who have positive W-2 income (working_pooled_pooled_mean)." .
+
+ex:teenBirthRateFemale
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "teen birth rate (female)" ;
+    rdfs:comment "Fraction of women who had a child before age 20 (teenbrth_pooled_female_mean)." .
+
+ex:commutingZoneName
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:string ;
+    rdfs:label "commuting zone name" ;
+    rdfs:comment "Human-readable commuting zone name, e.g. 'New York', 'Chicago' (czname)." .
+
+ex:medianHouseholdIncome2016
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "median household income 2016" ;
+    rdfs:comment "Median household income in 2016, dollars (med_hhinc2016)." .
+
+ex:povertyShare2010
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "poverty share 2010" ;
+    rdfs:comment "Share of population below poverty line in 2010 (poor_share2010)." .
+
+ex:povertyShare2000
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "poverty share 2000" ;
+    rdfs:comment "Share of population below poverty line in 2000 (poor_share2000)." .
+
+ex:collegeFraction2010
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "college fraction 2010" ;
+    rdfs:comment "Fraction of adults with college degree or higher in 2010 (frac_coll_plus2010)." .
+
+ex:jobDensity2013
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "job density 2013" ;
+    rdfs:comment "Jobs per square mile in 2013 (job_density_2013)." .
+
+ex:jobsHighPay5mi2015
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "high-pay jobs within 5 miles (2015)" ;
+    rdfs:comment "High-paying jobs within 5 miles of tract centroid in 2015 (jobs_highpay_5mi_2015)." .
+
+ex:singleParentShare2010
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "single-parent household share 2010" ;
+    rdfs:comment "Fraction of households with children that are single-parent in 2010 (singleparent_share2010)." .
+
+ex:blackShare2010
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "Black population share 2010" ;
+    rdfs:comment "Fraction of population that is Black in 2010 (share_black2010)." .
+
+ex:mathScore3rdGrade2013
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "3rd-grade math score 2013" ;
+    rdfs:comment "Mean 3rd grade math test scores in 2013, standardized (national avg = 0) (gsmn_math_g3_2013)." .
+
+ex:annualJobGrowth20042013
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:CensusTract ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "annual job growth rate 2004–2013" ;
+    rdfs:comment "Annual average job growth rate 2004–2013 (ann_avg_job_growth_2004_2013)." .
+
+# ============================================================
+# BLS QCEW Employment Properties
+# Source: bls_qcew.2019_q2
+# Domain: ex:County
+# ============================================================
+
+ex:manufacturingWeeklyWage
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "manufacturing average weekly wage" ;
+    rdfs:comment "Average weekly wage in manufacturing, dollars (BLS QCEW avg_wkly_wage_31_33_manufacturing)." .
+
+ex:manufacturingEmployment
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "manufacturing employment level" ;
+    rdfs:comment "Employment level in manufacturing, Q2 month 3 (BLS QCEW month3_emplvl_31_33_manufacturing)." .
+
+ex:manufacturingLocationQuotient
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "manufacturing location quotient" ;
+    rdfs:comment "Manufacturing employment location quotient. >1 = more specialized than US average (BLS QCEW)." .
+
+ex:healthcareWeeklyWage
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "healthcare average weekly wage" ;
+    rdfs:comment "Average weekly wage in health care and social assistance, dollars (BLS QCEW)." .
+
+ex:healthcareEmployment
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "healthcare employment level" ;
+    rdfs:comment "Employment level in health care and social assistance (BLS QCEW)." .
+
+ex:healthcareLocationQuotient
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "healthcare location quotient" ;
+    rdfs:comment "Healthcare employment location quotient (BLS QCEW)." .
+
+ex:financeWeeklyWage
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "finance & insurance average weekly wage" ;
+    rdfs:comment "Average weekly wage in finance and insurance, dollars (BLS QCEW)." .
+
+ex:financeLocationQuotient
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "finance & insurance location quotient" ;
+    rdfs:comment "Finance and insurance employment location quotient (BLS QCEW)." .
+
+ex:retailWeeklyWage
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "retail trade average weekly wage" ;
+    rdfs:comment "Average weekly wage in retail trade, dollars (BLS QCEW)." .
+
+ex:retailEmployment
+    a owl:DatatypeProperty ;
+    rdfs:domain ex:County ;
+    rdfs:range  xsd:decimal ;
+    rdfs:label "retail trade employment level" ;
+    rdfs:comment "Employment level in retail trade (BLS QCEW)." .

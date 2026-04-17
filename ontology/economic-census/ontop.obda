@@ -1,0 +1,74 @@
+[PrefixDeclaration]
+:		http://localhost:4321/census/
+ex:		http://localhost:4321/ontology/
+rdf:	http://www.w3.org/1999/02/22-rdf-syntax-ns#
+rdfs:	http://www.w3.org/2000/01/rdf-schema#
+owl:	http://www.w3.org/2002/07/owl#
+xsd:	http://www.w3.org/2001/XMLSchema#
+
+[MappingDeclaration] @collection [[
+
+# ============================================================
+# ACS County 1-Year (census_bq.acs_county_1yr)
+# Entity IRI: :County/acs1yr/{fips}
+# Covers ~820 US counties with population ≥65,000 (2021 data).
+# ============================================================
+
+mappingId	AcsCounty1yr
+target		:County/acs1yr/{fips} a ex:County ; ex:fipsCode {fips}^^xsd:string ; ex:totalPop {total_pop}^^xsd:decimal ; ex:medianIncome {median_income}^^xsd:decimal ; ex:incomePerCapita {income_per_capita}^^xsd:decimal ; ex:povertyCount {poverty}^^xsd:decimal ; ex:unemployedPop {unemployed_pop}^^xsd:decimal ; ex:giniIndex {gini_index}^^xsd:decimal ; ex:rentBurdenPercent {percent_income_spent_on_rent}^^xsd:decimal ; ex:medianRent {median_rent}^^xsd:decimal ; ex:medianHomeValue {owner_occupied_housing_units_median_value}^^xsd:decimal ; ex:medianAge {median_age}^^xsd:decimal ; ex:whitePop {white_pop}^^xsd:decimal ; ex:blackPop {black_pop}^^xsd:decimal ; ex:hispanicPop {hispanic_pop}^^xsd:decimal ; ex:asianPop {asian_pop}^^xsd:decimal ; ex:collegeDegreePopulation {bachelors_degree_or_higher_25_64}^^xsd:decimal ; ex:lessHighSchoolPopulation {less_than_high_school_graduate}^^xsd:decimal ; ex:employedManufacturing {employed_manufacturing}^^xsd:decimal ; ex:employedEducationHealth {employed_education_health_social}^^xsd:decimal ; ex:commutersPublicTransit {commuters_by_public_transportation}^^xsd:decimal ; ex:workedAtHome {worked_at_home}^^xsd:decimal .
+source		SELECT RIGHT(geo_id, 5) AS fips, total_pop, median_income, income_per_capita, poverty, unemployed_pop, gini_index, percent_income_spent_on_rent, median_rent, owner_occupied_housing_units_median_value, median_age, white_pop, black_pop, hispanic_pop, asian_pop, bachelors_degree_or_higher_25_64, less_than_high_school_graduate, employed_manufacturing, employed_education_health_social, commuters_by_public_transportation, worked_at_home FROM census_bq.acs_county_1yr
+
+# ============================================================
+# ACS County 5-Year (census_bq.acs_county_5yr)
+# Entity IRI: :County/acs5yr/{fips}
+# Covers ALL 3,200+ US counties including rural (2016-2020 avg).
+# Separate IRI from 1yr to avoid conflicting property values.
+# ============================================================
+
+mappingId	AcsCounty5yr
+target		:County/acs5yr/{fips} a ex:County ; ex:fipsCode {fips}^^xsd:string ; ex:totalPop {total_pop}^^xsd:decimal ; ex:medianIncome {median_income}^^xsd:decimal ; ex:povertyCount {poverty}^^xsd:decimal ; ex:giniIndex {gini_index}^^xsd:decimal ; ex:medianRent {median_rent}^^xsd:decimal ; ex:unemployedPop {unemployed_pop}^^xsd:decimal .
+source		SELECT RIGHT(geo_id, 5) AS fips, total_pop, median_income, poverty, gini_index, median_rent, unemployed_pop FROM census_bq.acs_county_5yr
+
+# ============================================================
+# ACS State 1-Year (census_bq.acs_state_1yr)
+# Entity IRI: :State/acs1yr/{sfips}
+# Covers all 50 US states + DC (2021 data).
+# ============================================================
+
+mappingId	AcsState1yr
+target		:State/acs1yr/{sfips} a ex:State ; ex:fipsCode {sfips}^^xsd:string ; ex:totalPop {total_pop}^^xsd:decimal ; ex:medianIncome {median_income}^^xsd:decimal ; ex:giniIndex {gini_index}^^xsd:decimal ; ex:povertyCount {poverty}^^xsd:decimal ; ex:unemployedPop {unemployed_pop}^^xsd:decimal ; ex:collegeDegreePopulation {bachelors_degree_or_higher_25_64}^^xsd:decimal .
+source		SELECT RIGHT(geo_id, 2) AS sfips, total_pop, median_income, gini_index, poverty, unemployed_pop, bachelors_degree_or_higher_25_64 FROM census_bq.acs_state_1yr
+
+# ============================================================
+# Opportunity Atlas — Tract Outcomes (census_bq.atlas_tract_outcomes)
+# Entity IRI: :CensusTract/{sf}/{cf}/{t}
+#   sf = 2-digit state FIPS, cf = 3-digit county FIPS, t = 6-digit tract
+# Also links each tract to its parent county via ex:partOf.
+# county_fips (= sf || cf) matches :County/acs1yr/{fips} IRI key.
+# ============================================================
+
+mappingId	AtlasTract-Outcomes
+target		:CensusTract/{sf}/{cf}/{t} a ex:CensusTract ; ex:fipsCode {county_fips}^^xsd:string ; ex:partOf :County/acs1yr/{county_fips} ; ex:upwardMobilityP25 {kfr_pooled_pooled_p25}^^xsd:decimal ; ex:upwardMobilityBlackP25 {kfr_black_pooled_p25}^^xsd:decimal ; ex:upwardMobilityWhiteP25 {kfr_white_pooled_p25}^^xsd:decimal ; ex:upwardMobilityHispanicP25 {kfr_hisp_pooled_p25}^^xsd:decimal ; ex:incarcerationRate {jail_pooled_pooled_mean}^^xsd:decimal ; ex:incarcerationRateBlackMale {jail_black_male_mean}^^xsd:decimal ; ex:marriageRateFemale {married_pooled_female_mean}^^xsd:decimal ; ex:employmentRate {working_pooled_pooled_mean}^^xsd:decimal ; ex:teenBirthRateFemale {teenbrth_pooled_female_mean}^^xsd:decimal .
+source		SELECT LPAD(CAST(state AS VARCHAR), 2, '0') AS sf, LPAD(CAST(county AS VARCHAR), 3, '0') AS cf, LPAD(CAST(tract AS VARCHAR), 6, '0') AS t, LPAD(CAST(state AS VARCHAR), 2, '0') || LPAD(CAST(county AS VARCHAR), 3, '0') AS county_fips, kfr_pooled_pooled_p25, kfr_black_pooled_p25, kfr_white_pooled_p25, kfr_hisp_pooled_p25, jail_pooled_pooled_mean, jail_black_male_mean, married_pooled_female_mean, working_pooled_pooled_mean, teenbrth_pooled_female_mean FROM census_bq.atlas_tract_outcomes
+
+# ============================================================
+# Opportunity Atlas — Tract Covariates (census_bq.atlas_tract_covariates)
+# Same IRI as AtlasTract-Outcomes; adds structural characteristics.
+# Ontop merges properties from both mappings for the same IRI.
+# ============================================================
+
+mappingId	AtlasTract-Covariates
+target		:CensusTract/{sf}/{cf}/{t} ex:commutingZoneName {czname}^^xsd:string ; ex:medianHouseholdIncome2016 {med_hhinc2016}^^xsd:decimal ; ex:povertyShare2010 {poor_share2010}^^xsd:decimal ; ex:povertyShare2000 {poor_share2000}^^xsd:decimal ; ex:collegeFraction2010 {frac_coll_plus2010}^^xsd:decimal ; ex:jobDensity2013 {job_density_2013}^^xsd:decimal ; ex:jobsHighPay5mi2015 {jobs_highpay_5mi_2015}^^xsd:decimal ; ex:singleParentShare2010 {singleparent_share2010}^^xsd:decimal ; ex:blackShare2010 {share_black2010}^^xsd:decimal ; ex:mathScore3rdGrade2013 {gsmn_math_g3_2013}^^xsd:decimal ; ex:annualJobGrowth20042013 {ann_avg_job_growth_2004_2013}^^xsd:decimal .
+source		SELECT LPAD(CAST(state AS VARCHAR), 2, '0') AS sf, LPAD(CAST(county AS VARCHAR), 3, '0') AS cf, LPAD(CAST(tract AS VARCHAR), 6, '0') AS t, czname, med_hhinc2016, poor_share2010, poor_share2000, frac_coll_plus2010, job_density_2013, jobs_highpay_5mi_2015, singleparent_share2010, share_black2010, gsmn_math_g3_2013, ann_avg_job_growth_2004_2013 FROM census_bq.atlas_tract_covariates
+
+# ============================================================
+# BLS QCEW 2019 Q2 (census_bq.bls_qcew_2019)
+# Entity IRI: :County/bls/{geoid}
+# geoid is already a 5-digit county FIPS — no transformation needed.
+# ============================================================
+
+mappingId	BlsQcew
+target		:County/bls/{geoid} a ex:County ; ex:fipsCode {geoid}^^xsd:string ; ex:manufacturingWeeklyWage {avg_wkly_wage_31_33_manufacturing}^^xsd:decimal ; ex:manufacturingEmployment {month3_emplvl_31_33_manufacturing}^^xsd:decimal ; ex:manufacturingLocationQuotient {lq_month3_emplvl_31_33_manufacturing}^^xsd:decimal ; ex:healthcareWeeklyWage {avg_wkly_wage_62_health_care_and_social_assistance}^^xsd:decimal ; ex:healthcareEmployment {month3_emplvl_62_health_care_and_social_assistance}^^xsd:decimal ; ex:healthcareLocationQuotient {lq_month3_emplvl_62_health_care_and_social_assistance}^^xsd:decimal ; ex:financeWeeklyWage {avg_wkly_wage_52_finance_and_insurance}^^xsd:decimal ; ex:financeLocationQuotient {lq_month3_emplvl_52_finance_and_insurance}^^xsd:decimal ; ex:retailWeeklyWage {avg_wkly_wage_44_45_retail_trade}^^xsd:decimal ; ex:retailEmployment {month3_emplvl_44_45_retail_trade}^^xsd:decimal .
+source		SELECT geoid, avg_wkly_wage_31_33_manufacturing, month3_emplvl_31_33_manufacturing, lq_month3_emplvl_31_33_manufacturing, avg_wkly_wage_62_health_care_and_social_assistance, month3_emplvl_62_health_care_and_social_assistance, lq_month3_emplvl_62_health_care_and_social_assistance, avg_wkly_wage_52_finance_and_insurance, lq_month3_emplvl_52_finance_and_insurance, avg_wkly_wage_44_45_retail_trade, month3_emplvl_44_45_retail_trade FROM census_bq.bls_qcew_2019
+
+]]
